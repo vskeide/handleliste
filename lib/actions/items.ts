@@ -32,7 +32,7 @@ export async function createItem(name: string, sectionId: string) {
       section_id: sectionId,
       is_confirmed: false,
     })
-    .select()
+    .select('*, sections(name_nn, icon, color)')
     .single()
 
   if (error) {
@@ -40,6 +40,21 @@ export async function createItem(name: string, sectionId: string) {
     return { error: 'Kunne ikkje opprette vare' }
   }
   return { item: data }
+}
+
+export async function updateItemSection(itemId: string, sectionId: string) {
+  const householdId = await getSession()
+  if (!householdId) return { error: 'Ikkje innlogga' }
+
+  const supabase = createServiceRoleClient()
+  const { error } = await supabase
+    .from('items')
+    .update({ section_id: sectionId })
+    .eq('id', itemId)
+    .eq('household_id', householdId)
+
+  if (error) return { error: 'Kunne ikkje flytte vara' }
+  return { success: true }
 }
 
 export async function getHouseholdItems() {

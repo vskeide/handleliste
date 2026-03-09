@@ -8,12 +8,12 @@ import { CHAIN_COLORS } from '@/lib/constants'
 import { useRealtimeList } from '@/lib/hooks/use-realtime-list'
 import { toggleListItem, addItemToList, removeListItem, uncheckAllItems } from '@/lib/actions/lists'
 import { updateList, deleteList, saveAsTemplate } from '@/lib/actions/lists'
-import { searchItems, createItem, getHouseholdItems } from '@/lib/actions/items'
+import { searchItems, createItem, getHouseholdItems, updateItemSection } from '@/lib/actions/items'
 import { getMeals, addMealToList } from '@/lib/actions/meals'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
-import { ArrowLeft, Plus, Search, X, Check, Trash2, Map, Store, RotateCcw, Bookmark, MoreVertical, UtensilsCrossed } from 'lucide-react'
+import { ArrowLeft, Plus, Search, X, Check, Trash2, Map, Store, RotateCcw, Bookmark, MoreVertical, UtensilsCrossed, Shuffle, ArrowRightLeft } from 'lucide-react'
 import type { Section, WalkOrder } from '@/lib/types'
 
 interface Props {
@@ -38,6 +38,8 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores }:
   const [templateName, setTemplateName] = useState('')
   const [meals, setMeals] = useState<any[]>([])
   const [mealResults, setMealResults] = useState<any[]>([])
+  const [movingItemId, setMovingItemId] = useState<string | null>(null)
+  const [frihandelMode, setFrihandelMode] = useState(false)
   const searchRef = useRef<HTMLInputElement>(null)
   const [itemsMap, setItemsMap] = useState<Record<string, any>>({})
 
@@ -127,6 +129,18 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores }:
     setTimeout(() => searchRef.current?.focus(), 50)
   }
 
+  async function handleMoveItem(itemId: string, newSectionId: string) {
+    await updateItemSection(itemId, newSectionId)
+    // Update local itemsMap
+    setItemsMap((prev) => {
+      const item = prev[itemId]
+      if (!item) return prev
+      const newSection = sections.find((s) => s.id === newSectionId)
+      return { ...prev, [itemId]: { ...item, section_id: newSectionId, sections: newSection } }
+    })
+    setMovingItemId(null)
+  }
+
   async function handleToggle(listItemId: string, currentChecked: boolean) {
     await toggleListItem(listItemId, !currentChecked)
   }
@@ -178,6 +192,13 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores }:
             <h1 className="text-lg font-bold text-[#0F172A] truncate">{list.name}</h1>
           </div>
           <div className="flex items-center gap-2 flex-shrink-0">
+            <button
+              onClick={() => setFrihandelMode(!frihandelMode)}
+              className={`p-1 rounded ${frihandelMode ? 'text-primary bg-primary/10' : 'text-[#64748B]'}`}
+              title={frihandelMode ? 'Kategori-modus' : 'Frihandel-modus'}
+            >
+              <Shuffle className="h-5 w-5" />
+            </button>
             {list.stores && list.store_id && (
               <Link href={`/butikkar/${list.store_id}/kart`} className="text-[#64748B]">
                 <Map className="h-5 w-5" />
@@ -411,6 +432,39 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores }:
         </div>
       )}
 
+      {/* Move item section picker overlay */}
+      {movingItemId && (
+        <div className="fixed inset-0 bg-black/30 z-50 flex items-end justify-center" onClick={() => setMovingItemId(null)}>
+          <div className="bg-white rounded-t-2xl w-full max-w-lg p-4 pb-8" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-bold text-[#0F172A]">Flytt til kategori</h3>
+              <button onClick={() => setMovingItemId(null)}>
+                <X className="h-5 w-5 text-[#94A3B8]" />
+              </button>
+            </div>
+            <div className="space-y-1 max-h-64 overflow-y-auto">
+              {sections.map((section) => {
+                const currentSection = itemsMap[movingItemId]?.section_id
+                const isCurrent = section.id === currentSection
+                return (
+                  <button
+                    key={section.id}
+                    onClick={() => handleMoveItem(movingItemId, section.id)}
+                    className={`flex items-center gap-2 w-full rounded-lg p-2.5 text-left transition-colors ${
+                      isCurrent ? 'bg-primary/10 ring-1 ring-primary/30' : 'hover:bg-[#F1F5F9]'
+                    }`}
+                  >
+                    <span>{section.icon}</span>
+                    <span className="text-sm">{section.name_nn}</span>
+                    {isCurrent && <span className="text-[10px] text-primary ml-auto">noverande</span>}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* List content */}
       <div className="px-4 py-3">
         {loading ? (
@@ -423,7 +477,95 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores }:
               {t('list.add_item')}
             </Button>
           </div>
+        ) : frihandelMode ? (
+          /* ── Frihandel mode: flat list sorted by smart order ── */
+          <>
+            {(() => {
+              const smartSorted = [...uncheckedItems].sort((a, b) => {
+                const itemA = itemsMap[a.item_id]
+                const itemB = itemsMap[b.item_id]
+                const avgA = itemA?.check_count > 0 ? itemA.check_order_sum / itemA.check_count : 999
+                const avgB = itemB?.check_count > 0 ? itemB.check_order_sum / itemB.check_count : 999
+                if (avgA !== avgB) return avgA - avgB
+                return (itemA?.name || '').localeCompare(itemB?.name || '', 'nn')
+              })
+              return (
+                <div className="space-y-1">
+                  {smartSorted.map((li) => {
+                    const item = itemsMap[li.item_id]
+                    if (!item) return null
+                    const section = sectionMap[item.section_id]
+                    return (
+                      <div
+                        key={li.id}
+                        className="flex items-center gap-2 rounded-lg bg-white p-3 border border-[#E2E8F0]"
+                      >
+                        <button
+                          onClick={() => handleToggle(li.id, li.is_checked)}
+                          className="flex h-6 w-6 items-center justify-center rounded-full border-2 border-[#E2E8F0] flex-shrink-0 hover:border-[#10B981] transition-colors"
+                        />
+                        <button
+                          onClick={() => setMovingItemId(li.item_id)}
+                          className="flex-shrink-0"
+                          title={section?.name_nn || ''}
+                        >
+                          <span className="text-sm">{section?.icon || '📦'}</span>
+                        </button>
+                        <div className="flex-1 min-w-0">
+                          <span className="text-sm text-[#0F172A]">{item.name}</span>
+                          {!item.is_confirmed && (
+                            <Badge className="ml-2 text-[10px] bg-[#FEF3C7] text-[#D97706] border-0">
+                              {t('list.new_badge')}
+                            </Badge>
+                          )}
+                        </div>
+                        <span className="text-xs text-[#94A3B8] flex-shrink-0">{li.quantity}</span>
+                        <button onClick={() => handleRemove(li.id)} className="text-[#94A3B8] hover:text-red-500 flex-shrink-0">
+                          <X className="h-4 w-4" />
+                        </button>
+                      </div>
+                    )
+                  })}
+                </div>
+              )
+            })()}
+
+            {/* Checked items */}
+            {checkedItems.length > 0 && (
+              <div className="mt-6">
+                <div className="flex items-center gap-2 mb-2">
+                  <Check className="h-4 w-4 text-[#10B981]" />
+                  <span className="text-sm font-medium text-[#64748B]">
+                    {t('list.done_section')} ({checkedItems.length})
+                  </span>
+                </div>
+                <div className="space-y-1">
+                  {checkedItems.map((li) => {
+                    const item = itemsMap[li.item_id]
+                    if (!item) return null
+                    const section = sectionMap[item?.section_id]
+                    return (
+                      <div key={li.id} className="flex items-center gap-2 rounded-lg bg-white/50 p-3 border border-[#F1F5F9]">
+                        <button
+                          onClick={() => handleToggle(li.id, li.is_checked)}
+                          className="flex h-6 w-6 items-center justify-center rounded-full bg-[#10B981] flex-shrink-0"
+                        >
+                          <Check className="h-3.5 w-3.5 text-white" />
+                        </button>
+                        <span className="text-sm flex-shrink-0">{section?.icon || '📦'}</span>
+                        <span className="text-sm text-[#94A3B8] line-through flex-1">{item.name}</span>
+                        <button onClick={() => handleRemove(li.id)} className="text-[#94A3B8] hover:text-red-500 flex-shrink-0">
+                          <X className="h-4 w-4" />
+                        </button>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
+          </>
         ) : (
+          /* ── Category mode: items grouped by section ── */
           <>
             {/* Unchecked items grouped by section */}
             {sortedGroups.map(([sectionId, sectionItems]) => {
@@ -465,8 +607,7 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores }:
                           <button
                             onClick={() => handleToggle(li.id, li.is_checked)}
                             className="flex h-6 w-6 items-center justify-center rounded-full border-2 border-[#E2E8F0] flex-shrink-0 hover:border-[#10B981] transition-colors"
-                          >
-                          </button>
+                          />
                           <div className="flex-1 min-w-0">
                             <span className="text-sm text-[#0F172A]">{item.name}</span>
                             {!item.is_confirmed && (
@@ -475,6 +616,13 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores }:
                               </Badge>
                             )}
                           </div>
+                          <button
+                            onClick={() => setMovingItemId(li.item_id)}
+                            className="text-[#94A3B8] hover:text-primary flex-shrink-0"
+                            title="Flytt til annan kategori"
+                          >
+                            <ArrowRightLeft className="h-3.5 w-3.5" />
+                          </button>
                           <span className="text-xs text-[#94A3B8] flex-shrink-0">{li.quantity}</span>
                           <button onClick={() => handleRemove(li.id)} className="text-[#94A3B8] hover:text-red-500 flex-shrink-0">
                             <X className="h-4 w-4" />

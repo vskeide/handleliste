@@ -3,12 +3,13 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { getMeal, addMealItem, removeMealItem, updateMeal } from '@/lib/actions/meals'
+import { getMeal, addMealItem, removeMealItem } from '@/lib/actions/meals'
 import { searchItems, createItem } from '@/lib/actions/items'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { ArrowLeft, Plus, Search, X } from 'lucide-react'
+import type { Section } from '@/lib/types'
 
 export default function MealDetailPage() {
   const { id } = useParams<{ id: string }>()
@@ -19,6 +20,9 @@ export default function MealDetailPage() {
   const [searchQuery, setSearchQuery] = useState('')
   const [searchResults, setSearchResults] = useState<any[]>([])
   const [highlightIndex, setHighlightIndex] = useState(0)
+  const [sections, setSections] = useState<Section[]>([])
+  const [showSectionPicker, setShowSectionPicker] = useState(false)
+  const [newItemName, setNewItemName] = useState('')
   const searchRef = useRef<HTMLInputElement>(null)
 
   async function loadMeal() {
@@ -29,8 +33,21 @@ export default function MealDetailPage() {
 
   useEffect(() => { loadMeal() }, [id])
 
+  // Fetch sections for the create-new-item flow
+  useEffect(() => {
+    async function fetchSections() {
+      const res = await fetch('/api/sections')
+      if (res.ok) {
+        const data = await res.json()
+        setSections(data)
+      }
+    }
+    fetchSections()
+  }, [])
+
   const handleSearch = useCallback(async (query: string) => {
     setSearchQuery(query)
+    setShowSectionPicker(false)
     if (query.length < 1) { setSearchResults([]); return }
     const results = await searchItems(query)
     const existingIds = new Set((meal?.meal_items || []).map((mi: any) => mi.item_id))
@@ -42,7 +59,21 @@ export default function MealDetailPage() {
     await addMealItem(id, itemId)
     setSearchQuery('')
     setSearchResults([])
+    setShowSectionPicker(false)
     await loadMeal()
+    setTimeout(() => searchRef.current?.focus(), 50)
+  }
+
+  async function handleCreateAndAdd(sectionId: string) {
+    const result = await createItem(newItemName, sectionId)
+    if (result.item) {
+      await addMealItem(id, result.item.id)
+      await loadMeal()
+    }
+    setNewItemName('')
+    setShowSectionPicker(false)
+    setSearchQuery('')
+    setSearchResults([])
     setTimeout(() => searchRef.current?.focus(), 50)
   }
 
@@ -86,9 +117,14 @@ export default function MealDetailPage() {
               value={searchQuery}
               onChange={(e) => handleSearch(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === 'Enter' && searchResults.length > 0) {
+                if (e.key === 'Enter') {
                   e.preventDefault()
-                  handleAddItem(searchResults[highlightIndex]?.id || searchResults[0].id)
+                  if (searchResults.length > 0) {
+                    handleAddItem(searchResults[highlightIndex]?.id || searchResults[0].id)
+                  } else if (searchQuery.trim().length > 0) {
+                    setNewItemName(searchQuery.trim())
+                    setShowSectionPicker(true)
+                  }
                 } else if (e.key === 'ArrowDown') {
                   e.preventDefault()
                   setHighlightIndex((i) => Math.min(i + 1, searchResults.length - 1))
@@ -101,7 +137,7 @@ export default function MealDetailPage() {
               className="border-0 shadow-none focus-visible:ring-0 h-8"
               autoFocus
             />
-            <button onClick={() => { setShowSearch(false); setSearchQuery(''); setSearchResults([]) }}>
+            <button onClick={() => { setShowSearch(false); setSearchQuery(''); setSearchResults([]); setShowSectionPicker(false) }}>
               <X className="h-4 w-4 text-[#94A3B8]" />
             </button>
           </div>
@@ -122,6 +158,39 @@ export default function MealDetailPage() {
                   {index === highlightIndex && (
                     <span className="text-[10px] text-[#94A3B8] ml-auto">↵</span>
                   )}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* Create new item button */}
+          {searchQuery.length > 0 && (
+            <button
+              onClick={() => {
+                setNewItemName(searchQuery)
+                setShowSectionPicker(true)
+              }}
+              className="mt-2 flex items-center gap-2 w-full rounded-lg p-2 text-left hover:bg-[#F1F5F9] text-primary"
+            >
+              <Plus className="h-4 w-4" />
+              <span className="text-sm font-medium">
+                Opprett &quot;{searchQuery}&quot;
+              </span>
+            </button>
+          )}
+
+          {/* Section picker for new items */}
+          {showSectionPicker && (
+            <div className="mt-2 space-y-1 border-t pt-2">
+              <p className="text-xs text-[#64748B] mb-1">Vel kategori for ny vare:</p>
+              {sections.map((section) => (
+                <button
+                  key={section.id}
+                  onClick={() => handleCreateAndAdd(section.id)}
+                  className="flex items-center gap-2 w-full rounded-lg p-2 text-left hover:bg-[#F1F5F9]"
+                >
+                  <span>{section.icon}</span>
+                  <span className="text-sm">{section.name_nn}</span>
                 </button>
               ))}
             </div>
