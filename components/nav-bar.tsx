@@ -2,12 +2,13 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { ShoppingCart, Store, Settings } from 'lucide-react'
+import { ShoppingCart, Store, Settings, UtensilsCrossed } from 'lucide-react'
 import { t } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
 
 const navItems = [
   { href: '/lister', label: () => t('nav.lists'), icon: ShoppingCart },
+  { href: '/middagar', label: () => 'Middagar', icon: UtensilsCrossed },
   { href: '/butikkar', label: () => t('nav.stores'), icon: Store },
   { href: '/innstillingar', label: () => t('nav.settings'), icon: Settings },
 ]

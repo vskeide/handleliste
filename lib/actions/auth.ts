@@ -151,6 +151,7 @@ async function seedHouseholdItems(supabase: ReturnType<typeof createServiceRoleC
     'Hushaldning & reinhald': ['Oppvaskmiddel', 'Vaskemiddel (tøy)', 'Tøymjuknar', 'Toalettpapir', 'Tørkepapir', 'Søppelposar', 'Alufolie', 'Plastfolie', 'Fryseposar', 'Oppvaskmaskin-tabs', 'Klutar/svampar', 'Reingjøringsmiddel (allreint)', 'Bleikmiddel', 'Stearinlys', 'Fyrstikker'],
     'Personleg pleie': ['Sjampo', 'Balsam', 'Tannkrem', 'Tannbørste', 'Deodorant', 'Handsåpe', 'Dusjsåpe', 'Bodylotion', 'Barberskum', 'Bomullspads', 'Tampongar/bind', 'Solkrem', 'Leppepomade', 'Plaster', 'Smertestillande (Paracet)'],
     'Barnemat & bleier': ['Bleier', 'Våtserviettar', 'Barnemat (glas)', 'Barnemat (pose)', 'Barnegraut', 'Morsmjølkerstatning', 'Smokk', 'Tåteflaske', 'Barneyoghurt', 'Fruktmos (barn)'],
+    'Baking': ['Hvetemel', 'Sukker', 'Gjær', 'Bakepulver', 'Vaniljesukker', 'Natron', 'Melis', 'Kokosmel', 'Kakaopulver', 'Sjokolade (baking)'],
   }
 
   const allItems: { household_id: string; name: string; section_id: string; is_confirmed: boolean }[] = []

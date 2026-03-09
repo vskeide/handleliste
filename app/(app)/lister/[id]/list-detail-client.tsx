@@ -6,13 +6,14 @@ import Link from 'next/link'
 import { t } from '@/lib/i18n'
 import { CHAIN_COLORS } from '@/lib/constants'
 import { useRealtimeList } from '@/lib/hooks/use-realtime-list'
-import { toggleListItem, addItemToList, removeListItem, updateListItemQuantity } from '@/lib/actions/lists'
-import { updateList, deleteList } from '@/lib/actions/lists'
-import { searchItems, createItem } from '@/lib/actions/items'
+import { toggleListItem, addItemToList, removeListItem, uncheckAllItems } from '@/lib/actions/lists'
+import { updateList, deleteList, saveAsTemplate } from '@/lib/actions/lists'
+import { searchItems, createItem, getHouseholdItems } from '@/lib/actions/items'
+import { getMeals, addMealToList } from '@/lib/actions/meals'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
-import { ArrowLeft, Plus, Search, X, Check, Trash2, Map, Store } from 'lucide-react'
+import { ArrowLeft, Plus, Search, X, Check, Trash2, Map, Store, RotateCcw, Bookmark, MoreVertical, UtensilsCrossed } from 'lucide-react'
 import type { Section, WalkOrder } from '@/lib/types'
 
 interface Props {
@@ -27,19 +28,24 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores }:
   const { items: listItems, loading } = useRealtimeList(list.id)
   const [searchQuery, setSearchQuery] = useState('')
   const [searchResults, setSearchResults] = useState<any[]>([])
+  const [highlightIndex, setHighlightIndex] = useState(0)
   const [showSearch, setShowSearch] = useState(false)
   const [showStoreSelector, setShowStoreSelector] = useState(false)
   const [showSectionPicker, setShowSectionPicker] = useState(false)
   const [newItemName, setNewItemName] = useState('')
+  const [showMenu, setShowMenu] = useState(false)
+  const [showTemplateSave, setShowTemplateSave] = useState(false)
+  const [templateName, setTemplateName] = useState('')
+  const [meals, setMeals] = useState<any[]>([])
+  const [mealResults, setMealResults] = useState<any[]>([])
   const searchRef = useRef<HTMLInputElement>(null)
   const [itemsMap, setItemsMap] = useState<Record<string, any>>({})
 
-  // Fetch item details for list items
+  // Fetch item details and meals
   useEffect(() => {
     async function fetchItemDetails() {
       if (listItems.length === 0) return
-      const itemIds = listItems.map((li) => li.item_id)
-      const results = await searchItems('')
+      const results = await getHouseholdItems()
       const map: Record<string, any> = {}
       for (const item of results) {
         map[item.id] = item
@@ -48,6 +54,10 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores }:
     }
     fetchItemDetails()
   }, [listItems.length])
+
+  useEffect(() => {
+    getMeals().then(setMeals)
+  }, [])
 
   const sectionMap: Record<string, Section> = {}
   sections.forEach((s) => { sectionMap[s.id] = s })
@@ -74,30 +84,47 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores }:
     setSearchQuery(query)
     if (query.length < 1) {
       setSearchResults([])
+      setMealResults([])
       return
     }
     const results = await searchItems(query)
-    // Filter out items already on the list
     const existingItemIds = new Set(listItems.map((li) => li.item_id))
     setSearchResults(results.filter((r: any) => !existingItemIds.has(r.id)))
-  }, [listItems])
+    // Filter meals matching query
+    const lq = query.toLowerCase()
+    setMealResults(meals.filter((m) => m.name.toLowerCase().includes(lq)))
+    setHighlightIndex(0)
+  }, [listItems, meals])
 
   async function handleAddItem(itemId: string) {
     await addItemToList(list.id, itemId)
     setSearchQuery('')
     setSearchResults([])
-    setShowSearch(false)
+    // Keep search open and refocus for quick consecutive adds
+    setTimeout(() => searchRef.current?.focus(), 50)
   }
 
   async function handleCreateAndAdd(sectionId: string) {
     const result = await createItem(newItemName, sectionId)
     if (result.item) {
       await addItemToList(list.id, result.item.id)
+      // Add the new item to the local items map immediately
+      setItemsMap((prev) => ({ ...prev, [result.item.id]: { ...result.item, sections: sections.find((s) => s.id === sectionId) } }))
     }
     setNewItemName('')
     setShowSectionPicker(false)
-    setShowSearch(false)
     setSearchQuery('')
+    setSearchResults([])
+    // Keep search open and refocus for quick consecutive adds
+    setTimeout(() => searchRef.current?.focus(), 50)
+  }
+
+  async function handleAddMeal(mealId: string) {
+    await addMealToList(mealId, list.id)
+    setSearchQuery('')
+    setSearchResults([])
+    setMealResults([])
+    setTimeout(() => searchRef.current?.focus(), 50)
   }
 
   async function handleToggle(listItemId: string, currentChecked: boolean) {
@@ -112,6 +139,19 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores }:
     await updateList(list.id, { store_id: storeId })
     setShowStoreSelector(false)
     router.refresh()
+  }
+
+  async function handleUncheckAll() {
+    await uncheckAllItems(list.id)
+    setShowMenu(false)
+  }
+
+  async function handleSaveTemplate() {
+    if (!templateName.trim()) return
+    await saveAsTemplate(list.id, templateName.trim())
+    setTemplateName('')
+    setShowTemplateSave(false)
+    setShowMenu(false)
   }
 
   async function handleDeleteList() {
@@ -146,8 +186,62 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores }:
             <button onClick={() => setShowSearch(true)} className="text-[#64748B]">
               <Plus className="h-5 w-5" />
             </button>
+            <div className="relative">
+              <button onClick={() => setShowMenu(!showMenu)} className="text-[#64748B]">
+                <MoreVertical className="h-5 w-5" />
+              </button>
+              {showMenu && (
+                <div className="absolute right-0 top-8 bg-white rounded-lg shadow-lg border py-1 w-48 z-50">
+                  {checkedCount > 0 && (
+                    <button
+                      onClick={handleUncheckAll}
+                      className="flex items-center gap-2 w-full px-3 py-2 text-sm text-left hover:bg-[#F1F5F9]"
+                    >
+                      <RotateCcw className="h-4 w-4 text-[#64748B]" />
+                      Nullstill liste
+                    </button>
+                  )}
+                  {totalItems > 0 && (
+                    <button
+                      onClick={() => { setShowTemplateSave(true); setShowMenu(false); setTemplateName(list.name) }}
+                      className="flex items-center gap-2 w-full px-3 py-2 text-sm text-left hover:bg-[#F1F5F9]"
+                    >
+                      <Bookmark className="h-4 w-4 text-[#64748B]" />
+                      Lagre som mal
+                    </button>
+                  )}
+                  <button
+                    onClick={() => { handleDeleteList(); setShowMenu(false) }}
+                    className="flex items-center gap-2 w-full px-3 py-2 text-sm text-left hover:bg-[#F1F5F9] text-red-600"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                    Slett liste
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         </div>
+
+        {/* Save as template modal */}
+        {showTemplateSave && (
+          <div className="mt-2 flex items-center gap-2">
+            <Input
+              value={templateName}
+              onChange={(e) => setTemplateName(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') handleSaveTemplate() }}
+              placeholder="Namn på mal..."
+              className="h-8 text-sm"
+              autoFocus
+            />
+            <Button onClick={handleSaveTemplate} size="sm" className="h-8 px-3">
+              Lagre
+            </Button>
+            <button onClick={() => setShowTemplateSave(false)}>
+              <X className="h-4 w-4 text-[#94A3B8]" />
+            </button>
+          </div>
+        )}
 
         {/* Store badge + progress */}
         <div className="flex items-center gap-2 mt-2">
@@ -206,25 +300,73 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores }:
               ref={searchRef}
               value={searchQuery}
               onChange={(e) => handleSearch(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault()
+                  if (searchResults.length > 0) {
+                    handleAddItem(searchResults[highlightIndex]?.id || searchResults[0].id)
+                  } else if (searchQuery.trim().length > 0) {
+                    setNewItemName(searchQuery.trim())
+                    setShowSectionPicker(true)
+                  }
+                } else if (e.key === 'ArrowDown') {
+                  e.preventDefault()
+                  setHighlightIndex((i) => Math.min(i + 1, searchResults.length - 1))
+                } else if (e.key === 'ArrowUp') {
+                  e.preventDefault()
+                  setHighlightIndex((i) => Math.max(i - 1, 0))
+                }
+              }}
               placeholder={t('list.search_placeholder')}
               className="border-0 shadow-none focus-visible:ring-0 h-8"
               autoFocus
             />
-            <button onClick={() => { setShowSearch(false); setSearchQuery(''); setSearchResults([]) }}>
+            <button onClick={() => { setShowSearch(false); setSearchQuery(''); setSearchResults([]); setMealResults([]) }}>
               <X className="h-4 w-4 text-[#94A3B8]" />
             </button>
           </div>
 
+          {/* Meal results */}
+          {mealResults.length > 0 && (
+            <div className="mt-2 space-y-1">
+              {mealResults.map((meal: any) => {
+                const count = meal.meal_items?.[0]?.count || 0
+                return (
+                  <button
+                    key={`meal-${meal.id}`}
+                    onClick={() => handleAddMeal(meal.id)}
+                    className="flex items-center gap-2 w-full rounded-lg p-2 text-left hover:bg-[#FFF7ED] bg-[#FFFBF5] border border-[#FED7AA] transition-colors"
+                  >
+                    <span className="text-sm">{meal.icon}</span>
+                    <span className="text-sm font-medium">{meal.name}</span>
+                    <Badge className="text-[10px] bg-[#FED7AA] text-[#C2410C] border-0 ml-auto">
+                      <UtensilsCrossed className="h-2.5 w-2.5 mr-0.5 inline" />
+                      {count} varer
+                    </Badge>
+                  </button>
+                )
+              })}
+            </div>
+          )}
+
           {searchResults.length > 0 && (
             <div className="mt-2 space-y-1 max-h-60 overflow-y-auto">
-              {searchResults.map((item: any) => (
+              {searchResults.map((item: any, index: number) => (
                 <button
                   key={item.id}
                   onClick={() => handleAddItem(item.id)}
-                  className="flex items-center gap-2 w-full rounded-lg p-2 text-left hover:bg-[#F1F5F9]"
+                  onMouseEnter={() => setHighlightIndex(index)}
+                  className={`flex items-center gap-2 w-full rounded-lg p-2 text-left transition-colors ${
+                    index === highlightIndex
+                      ? 'bg-primary/10 ring-1 ring-primary/30'
+                      : 'hover:bg-[#F1F5F9]'
+                  }`}
                 >
                   <span className="text-sm">{item.sections?.icon}</span>
                   <span className="text-sm">{item.name}</span>
+                  {index === highlightIndex && (
+                    <span className="text-[10px] text-[#94A3B8] ml-auto">↵</span>
+                  )}
                   {!item.is_confirmed && (
                     <Badge className="text-[10px] bg-[#FEF3C7] text-[#D97706] border-0 ml-auto">
                       {t('list.new_badge')}
@@ -289,10 +431,14 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores }:
               const walkNum = walkOrderMap[sectionId]
               if (!section) return null
 
+              // Smart sort: items checked earlier on average appear first
               const sortedItems = [...sectionItems].sort((a, b) => {
-                const nameA = itemsMap[a.item_id]?.name || ''
-                const nameB = itemsMap[b.item_id]?.name || ''
-                return nameA.localeCompare(nameB, 'nn')
+                const itemA = itemsMap[a.item_id]
+                const itemB = itemsMap[b.item_id]
+                const avgA = itemA?.check_count > 0 ? itemA.check_order_sum / itemA.check_count : 999
+                const avgB = itemB?.check_count > 0 ? itemB.check_order_sum / itemB.check_count : 999
+                if (avgA !== avgB) return avgA - avgB
+                return (itemA?.name || '').localeCompare(itemB?.name || '', 'nn')
               })
 
               return (

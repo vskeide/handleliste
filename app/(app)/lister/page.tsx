@@ -4,7 +4,7 @@ import { createServiceRoleClient } from '@/lib/supabase/server'
 import { SESSION_COOKIE_NAME } from '@/lib/constants'
 import { t } from '@/lib/i18n'
 import { Button } from '@/components/ui/button'
-import { Plus, ShoppingCart } from 'lucide-react'
+import { Plus, ShoppingCart, Bookmark } from 'lucide-react'
 import { CHAIN_COLORS } from '@/lib/constants'
 
 export default async function ListsPage() {
@@ -17,8 +17,14 @@ export default async function ListsPage() {
     .select('*, stores(name, chain)')
     .eq('household_id', householdId)
     .eq('is_active', true)
-    .eq('is_template', false)
     .order('updated_at', { ascending: false })
+
+  // Fetch templates
+  const { data: templates } = await supabase
+    .from('list_templates')
+    .select('*, template_items(count), stores(name, chain)')
+    .eq('household_id', householdId)
+    .order('created_at', { ascending: false })
 
   // Get item counts per list
   const listIds = (lists || []).map((l: { id: string }) => l.id)
@@ -51,6 +57,45 @@ export default async function ListsPage() {
           </Link>
         </Button>
       </div>
+
+      {/* Templates */}
+      {templates && templates.length > 0 && (
+        <div className="mb-6">
+          <div className="flex items-center gap-2 mb-3">
+            <Bookmark className="h-4 w-4 text-[#64748B]" />
+            <span className="text-sm font-medium text-[#64748B]">Malar</span>
+          </div>
+          <div className="flex gap-2 overflow-x-auto pb-2">
+            {templates.map((tmpl: any) => {
+              const cc = tmpl.stores?.chain ? CHAIN_COLORS[tmpl.stores.chain] : null
+              const count = tmpl.template_items?.[0]?.count || 0
+              return (
+                <Link
+                  key={tmpl.id}
+                  href={`/lister/ny?template=${tmpl.id}`}
+                  className="flex-shrink-0 rounded-lg border border-[#E2E8F0] bg-white px-3 py-2 hover:border-primary transition-colors"
+                >
+                  <span className="text-sm font-medium text-[#0F172A]">{tmpl.name}</span>
+                  <div className="flex items-center gap-1.5 mt-0.5">
+                    {tmpl.stores && (
+                      <span
+                        className="text-[9px] px-1.5 py-0.5 rounded-full font-medium"
+                        style={{
+                          backgroundColor: cc?.lightBg || '#F1F5F9',
+                          color: cc?.primary || '#64748B',
+                        }}
+                      >
+                        {tmpl.stores.name}
+                      </span>
+                    )}
+                    <span className="text-[10px] text-[#94A3B8]">{count} varer</span>
+                  </div>
+                </Link>
+              )
+            })}
+          </div>
+        </div>
+      )}
 
       {(!lists || lists.length === 0) ? (
         <div className="text-center py-12">
