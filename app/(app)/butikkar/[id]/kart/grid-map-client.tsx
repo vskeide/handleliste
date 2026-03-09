@@ -6,7 +6,7 @@ import Link from 'next/link'
 import { t } from '@/lib/i18n'
 import { saveStoreMap } from '@/lib/actions/stores'
 import { Button } from '@/components/ui/button'
-import { ArrowLeft, Eye, Pencil, Plus, Minus, GripVertical, Move } from 'lucide-react'
+import { ArrowLeft, Eye, Pencil, Trash2 } from 'lucide-react'
 import type { Section, StoreMap, StoreMapBlock, WalkOrder } from '@/lib/types'
 
 interface Props {
@@ -21,6 +21,8 @@ interface Props {
 const DEFAULT_GRID_COLS = 8
 const DEFAULT_GRID_ROWS = 10
 
+type DragMode = 'move' | 'resize-right' | 'resize-bottom' | null
+
 export function GridMapClient({ storeId, storeName, sections, storeMap, walkOrder, canEdit }: Props) {
   const router = useRouter()
   const [mode, setMode] = useState<'view' | 'edit'>('view')
@@ -33,10 +35,17 @@ export function GridMapClient({ storeId, storeName, sections, storeMap, walkOrde
   const [selectedSection, setSelectedSection] = useState<string | null>(null)
   const [placingEntrance, setPlacingEntrance] = useState(false)
   const [placingCheckout, setPlacingCheckout] = useState(false)
-  // Drag state for moving tiles
+
+  // Drag state for tiles
   const [draggingBlock, setDraggingBlock] = useState<number | null>(null)
+  const [dragMode, setDragMode] = useState<DragMode>(null)
   const [dragOffset, setDragOffset] = useState({ col: 0, row: 0 })
+  const resizeStartRef = useRef<{ clientX: number; clientY: number; block: StoreMapBlock } | null>(null)
   const gridRef = useRef<HTMLDivElement>(null)
+
+  // Cell selection state (drag to select a rectangle of empty cells)
+  const [selectingFrom, setSelectingFrom] = useState<{ col: number; row: number } | null>(null)
+  const [cellSelection, setCellSelection] = useState<{ col: number; row: number; w: number; h: number } | null>(null)
 
   const sectionMap: Record<string, Section> = {}
   sections.forEach((s) => { sectionMap[s.id] = s })
@@ -56,7 +65,7 @@ export function GridMapClient({ storeId, storeName, sections, storeMap, walkOrde
     return true
   }
 
-  function handleCellClick(col: number, row: number) {
+  function handleCellPointerDown(col: number, row: number) {
     if (mode !== 'edit') return
 
     if (placingEntrance) {
@@ -70,71 +79,162 @@ export function GridMapClient({ storeId, storeName, sections, storeMap, walkOrde
       return
     }
 
-    // Check if clicked on existing block
-    const blockIdx = blocks.findIndex((b) =>
-      col >= b.col && col < b.col + b.width && row >= b.row && row < b.row + b.height
-    )
+    // Start cell selection
+    setSelectingFrom({ col, row })
+    setCellSelection({ col, row, w: 1, h: 1 })
+  }
 
-    if (blockIdx !== -1) {
-      // Select existing block for info - no action in simple click
-      return
-    }
-
-    if (selectedSection && canPlace(col, row, 1, 1)) {
-      setBlocks((prev) => [...prev, { section_id: selectedSection, col, row, width: 1, height: 1 }])
+  function handleCellPointerEnter(col: number, row: number) {
+    if (!selectingFrom) return
+    const minCol = Math.min(selectingFrom.col, col)
+    const minRow = Math.min(selectingFrom.row, row)
+    const maxCol = Math.max(selectingFrom.col, col)
+    const maxRow = Math.max(selectingFrom.row, row)
+    const w = maxCol - minCol + 1
+    const h = maxRow - minRow + 1
+    if (canPlace(minCol, minRow, w, h)) {
+      setCellSelection({ col: minCol, row: minRow, w, h })
     }
   }
 
-  function removeBlock(index: number) {
+  function finalizeCellSelection() {
+    if (!selectingFrom) return
+    setSelectingFrom(null)
+    // If a section is already selected and we have a valid selection, place immediately
+    if (selectedSection && cellSelection && canPlace(cellSelection.col, cellSelection.row, cellSelection.w, cellSelection.h)) {
+      setBlocks((prev) => [...prev, {
+        section_id: selectedSection,
+        col: cellSelection.col,
+        row: cellSelection.row,
+        width: cellSelection.w,
+        height: cellSelection.h,
+      }])
+      setCellSelection(null)
+      setSelectedSection(null)
+    }
+    // Otherwise keep the selection visible — user picks a section next
+  }
+
+  function placeAtSelection(sectionId: string) {
+    if (!cellSelection) return
+    if (canPlace(cellSelection.col, cellSelection.row, cellSelection.w, cellSelection.h)) {
+      setBlocks((prev) => [...prev, {
+        section_id: sectionId,
+        col: cellSelection.col,
+        row: cellSelection.row,
+        width: cellSelection.w,
+        height: cellSelection.h,
+      }])
+    }
+    setCellSelection(null)
+    setSelectedSection(null)
+  }
+
+  function removeBlock(index: number, e: React.PointerEvent | React.MouseEvent) {
+    e.stopPropagation()
+    e.preventDefault()
     setBlocks((prev) => prev.filter((_, i) => i !== index))
   }
 
-  function resizeBlock(index: number, dw: number, dh: number) {
-    setBlocks((prev) => {
-      const b = prev[index]
-      const newW = Math.max(1, b.width + dw)
-      const newH = Math.max(1, b.height + dh)
-      if (canPlace(b.col, b.row, newW, newH, index)) {
-        const updated = [...prev]
-        updated[index] = { ...b, width: newW, height: newH }
-        return updated
-      }
-      return prev
-    })
-  }
+  // Determine drag mode based on pointer position within tile
+  function onTilePointerDown(index: number, e: React.PointerEvent) {
+    if (mode !== 'edit' || !gridRef.current || placingEntrance || placingCheckout) return
+    e.preventDefault()
+    e.stopPropagation()
 
-  // Touch/pointer drag for moving blocks
-  function startDrag(index: number, clientX: number, clientY: number) {
-    if (mode !== 'edit' || !gridRef.current) return
     const rect = gridRef.current.getBoundingClientRect()
     const cellW = rect.width / gridCols
     const cellH = rect.height / gridRows
-    const gridCol = Math.floor((clientX - rect.left) / cellW)
-    const gridRow = Math.floor((clientY - rect.top) / cellH)
     const b = blocks[index]
-    setDraggingBlock(index)
-    setDragOffset({ col: gridCol - b.col, row: gridRow - b.row })
-  }
 
-  function handlePointerMove(e: React.PointerEvent) {
-    if (draggingBlock === null || !gridRef.current) return
-    const rect = gridRef.current.getBoundingClientRect()
-    const cellW = rect.width / gridCols
-    const cellH = rect.height / gridRows
-    const gridCol = Math.floor((e.clientX - rect.left) / cellW) - dragOffset.col
-    const gridRow = Math.floor((e.clientY - rect.top) / cellH) - dragOffset.row
-    const b = blocks[draggingBlock]
-    if (canPlace(gridCol, gridRow, b.width, b.height, draggingBlock)) {
-      setBlocks((prev) => {
-        const updated = [...prev]
-        updated[draggingBlock] = { ...b, col: gridCol, row: gridRow }
-        return updated
-      })
+    // Calculate pointer position relative to the tile
+    const tileLeft = rect.left + b.col * cellW
+    const tileTop = rect.top + b.row * cellH
+    const tileWidth = b.width * cellW
+    const tileHeight = b.height * cellH
+
+    const relX = e.clientX - tileLeft
+    const relY = e.clientY - tileTop
+
+    // Edge threshold: 30% of a single cell width/height (from the edge)
+    const edgeThresholdX = cellW * 0.35
+    const edgeThresholdY = cellH * 0.35
+
+    const nearRight = relX > tileWidth - edgeThresholdX
+    const nearBottom = relY > tileHeight - edgeThresholdY
+
+    if (nearRight && !nearBottom) {
+      // Resize right edge
+      setDraggingBlock(index)
+      setDragMode('resize-right')
+      resizeStartRef.current = { clientX: e.clientX, clientY: e.clientY, block: { ...b } }
+    } else if (nearBottom && !nearRight) {
+      // Resize bottom edge
+      setDraggingBlock(index)
+      setDragMode('resize-bottom')
+      resizeStartRef.current = { clientX: e.clientX, clientY: e.clientY, block: { ...b } }
+    } else {
+      // Move mode
+      const gridCol = Math.floor((e.clientX - rect.left) / cellW)
+      const gridRow = Math.floor((e.clientY - rect.top) / cellH)
+      setDraggingBlock(index)
+      setDragMode('move')
+      setDragOffset({ col: gridCol - b.col, row: gridRow - b.row })
     }
   }
 
+  const handlePointerMove = useCallback((e: React.PointerEvent) => {
+    if (draggingBlock === null || !gridRef.current || !dragMode) return
+
+    const rect = gridRef.current.getBoundingClientRect()
+    const cellW = rect.width / gridCols
+    const cellH = rect.height / gridRows
+
+    if (dragMode === 'move') {
+      const gridCol = Math.floor((e.clientX - rect.left) / cellW) - dragOffset.col
+      const gridRow = Math.floor((e.clientY - rect.top) / cellH) - dragOffset.row
+      const b = blocks[draggingBlock]
+      if (canPlace(gridCol, gridRow, b.width, b.height, draggingBlock)) {
+        setBlocks((prev) => {
+          const updated = [...prev]
+          updated[draggingBlock] = { ...b, col: gridCol, row: gridRow }
+          return updated
+        })
+      }
+    } else if (dragMode === 'resize-right' && resizeStartRef.current) {
+      const orig = resizeStartRef.current.block
+      const deltaPixels = e.clientX - resizeStartRef.current.clientX
+      const deltaCells = Math.round(deltaPixels / cellW)
+      const newWidth = Math.max(1, orig.width + deltaCells)
+      if (canPlace(orig.col, orig.row, newWidth, orig.height, draggingBlock)) {
+        setBlocks((prev) => {
+          const updated = [...prev]
+          updated[draggingBlock] = { ...prev[draggingBlock], width: newWidth }
+          return updated
+        })
+      }
+    } else if (dragMode === 'resize-bottom' && resizeStartRef.current) {
+      const orig = resizeStartRef.current.block
+      const deltaPixels = e.clientY - resizeStartRef.current.clientY
+      const deltaCells = Math.round(deltaPixels / cellH)
+      const newHeight = Math.max(1, orig.height + deltaCells)
+      if (canPlace(orig.col, orig.row, orig.width, newHeight, draggingBlock)) {
+        setBlocks((prev) => {
+          const updated = [...prev]
+          updated[draggingBlock] = { ...prev[draggingBlock], height: newHeight }
+          return updated
+        })
+      }
+    }
+  }, [draggingBlock, dragMode, dragOffset, blocks, gridCols, gridRows])
+
   function handlePointerUp() {
+    if (selectingFrom) {
+      finalizeCellSelection()
+    }
     setDraggingBlock(null)
+    setDragMode(null)
+    resizeStartRef.current = null
   }
 
   async function handleSave() {
@@ -150,8 +250,28 @@ export function GridMapClient({ storeId, storeName, sections, storeMap, walkOrde
     setMode('view')
   }
 
+  function clearMap() {
+    if (blocks.length === 0) return
+    setBlocks([])
+    setSelectedSection(null)
+  }
+
   // Determine which sections are already placed
   const placedSectionIds = new Set(blocks.map((b) => b.section_id))
+
+  // Compute duplicate labels: if a section appears multiple times, label them "Name 1", "Name 2"
+  const sectionBlockCounts: Record<string, number> = {}
+  blocks.forEach((b) => { sectionBlockCounts[b.section_id] = (sectionBlockCounts[b.section_id] || 0) + 1 })
+  const sectionBlockIndex: Record<string, number> = {}
+  const blockLabels: string[] = blocks.map((b) => {
+    const section = sectionMap[b.section_id]
+    if (!section) return ''
+    if (sectionBlockCounts[b.section_id] > 1) {
+      sectionBlockIndex[b.section_id] = (sectionBlockIndex[b.section_id] || 0) + 1
+      return `${section.name_nn} ${sectionBlockIndex[b.section_id]}`
+    }
+    return section.name_nn
+  })
 
   return (
     <div className="mx-auto max-w-lg px-4 pt-6 pb-24">
@@ -194,7 +314,7 @@ export function GridMapClient({ storeId, storeName, sections, storeMap, walkOrde
           {/* Entrance / Checkout buttons */}
           <div className="flex gap-2">
             <button
-              onClick={() => { setPlacingEntrance(true); setPlacingCheckout(false); setSelectedSection(null) }}
+              onClick={() => { setPlacingEntrance(true); setPlacingCheckout(false); setSelectedSection(null); setCellSelection(null) }}
               className={`flex-1 flex items-center justify-center gap-1 rounded-lg border p-2 text-xs font-medium transition-colors ${
                 placingEntrance ? 'ring-2 ring-primary bg-primary/5' : 'bg-white'
               }`}
@@ -202,12 +322,19 @@ export function GridMapClient({ storeId, storeName, sections, storeMap, walkOrde
               🚪 Plasser inngang
             </button>
             <button
-              onClick={() => { setPlacingCheckout(true); setPlacingEntrance(false); setSelectedSection(null) }}
+              onClick={() => { setPlacingCheckout(true); setPlacingEntrance(false); setSelectedSection(null); setCellSelection(null) }}
               className={`flex-1 flex items-center justify-center gap-1 rounded-lg border p-2 text-xs font-medium transition-colors ${
                 placingCheckout ? 'ring-2 ring-primary bg-primary/5' : 'bg-white'
               }`}
             >
               💳 Plasser kasse
+            </button>
+            <button
+              onClick={clearMap}
+              disabled={blocks.length === 0}
+              className="flex items-center justify-center gap-1 rounded-lg border p-2 text-xs font-medium transition-colors bg-white text-red-500 hover:bg-red-50 disabled:opacity-30 disabled:cursor-not-allowed"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
             </button>
           </div>
 
@@ -219,17 +346,18 @@ export function GridMapClient({ storeId, storeName, sections, storeMap, walkOrde
                 <button
                   key={section.id}
                   onClick={() => {
+                    if (cellSelection) {
+                      placeAtSelection(section.id)
+                      return
+                    }
                     setSelectedSection(selectedSection === section.id ? null : section.id)
                     setPlacingEntrance(false)
                     setPlacingCheckout(false)
                   }}
-                  disabled={placed}
                   className={`flex items-center gap-1 px-2 py-1 rounded text-[11px] font-medium transition-all ${
-                    placed
-                      ? 'opacity-30 cursor-not-allowed'
-                      : selectedSection === section.id
-                        ? 'ring-2 ring-offset-1 ring-primary scale-105'
-                        : 'opacity-80 hover:opacity-100'
+                    selectedSection === section.id
+                      ? 'ring-2 ring-offset-1 ring-primary scale-105'
+                      : 'opacity-80 hover:opacity-100'
                   }`}
                   style={{
                     backgroundColor: section.color + '20',
@@ -252,7 +380,7 @@ export function GridMapClient({ storeId, storeName, sections, storeMap, walkOrde
       {/* Grid map */}
       <div
         ref={gridRef}
-        className="relative bg-[#F1F5F9] rounded-lg border overflow-hidden"
+        className="relative bg-[#F1F5F9] rounded-lg border overflow-hidden touch-none"
         style={{
           aspectRatio: `${gridCols}/${gridRows}`,
         }}
@@ -286,24 +414,43 @@ export function GridMapClient({ storeId, storeName, sections, storeMap, walkOrde
           ))}
         </svg>
 
-        {/* Click catcher for empty cells */}
+        {/* Cell interaction layer */}
         {mode === 'edit' && (
           <div className="absolute inset-0" style={{ zIndex: 2 }}>
             {Array.from({ length: gridRows }, (_, row) =>
               Array.from({ length: gridCols }, (_, col) => (
                 <div
                   key={`cell-${col}-${row}`}
-                  className="absolute cursor-pointer hover:bg-primary/5"
+                  className="absolute cursor-crosshair hover:bg-primary/5"
                   style={{
                     left: `${(col / gridCols) * 100}%`,
                     top: `${(row / gridRows) * 100}%`,
                     width: `${(1 / gridCols) * 100}%`,
                     height: `${(1 / gridRows) * 100}%`,
                   }}
-                  onClick={() => handleCellClick(col, row)}
+                  onPointerDown={(e) => { e.preventDefault(); handleCellPointerDown(col, row) }}
+                  onPointerEnter={() => handleCellPointerEnter(col, row)}
                 />
               ))
             )}
+          </div>
+        )}
+
+        {/* Selection rectangle overlay */}
+        {mode === 'edit' && cellSelection && (
+          <div
+            className="absolute rounded border-2 border-dashed border-primary bg-primary/10 pointer-events-none"
+            style={{
+              left: `${(cellSelection.col / gridCols) * 100}%`,
+              top: `${(cellSelection.row / gridRows) * 100}%`,
+              width: `${(cellSelection.w / gridCols) * 100}%`,
+              height: `${(cellSelection.h / gridRows) * 100}%`,
+              zIndex: 3,
+            }}
+          >
+            <span className="absolute inset-0 flex items-center justify-center text-xs font-bold text-primary">
+              {cellSelection.w}×{cellSelection.h}
+            </span>
           </div>
         )}
 
@@ -312,10 +459,14 @@ export function GridMapClient({ storeId, storeName, sections, storeMap, walkOrde
           const section = sectionMap[block.section_id]
           if (!section) return null
           const walkNum = walkOrderMap[block.section_id]
+          const tileLabel = blockLabels[index]
+          const isTallNarrow = block.height > block.width
+          const isLargeEnough = block.width >= 2 || block.height >= 2
+
           return (
             <div
               key={`block-${index}`}
-              className={`absolute flex flex-col items-center justify-center rounded-md shadow-sm ${
+              className={`absolute flex flex-col items-center justify-center rounded-md shadow-sm select-none ${
                 mode === 'edit' ? 'cursor-grab active:cursor-grabbing' : ''
               }`}
               style={{
@@ -327,20 +478,9 @@ export function GridMapClient({ storeId, storeName, sections, storeMap, walkOrde
                 zIndex: draggingBlock === index ? 20 : 5,
                 transition: draggingBlock === index ? 'none' : 'all 0.15s ease',
               }}
-              onPointerDown={(e) => {
-                if (mode === 'edit' && !placingEntrance && !placingCheckout) {
-                  e.preventDefault()
-                  startDrag(index, e.clientX, e.clientY)
-                }
-              }}
-              onClick={() => {
-                if (mode === 'edit' && placingEntrance) {
-                  // Don't place entrance on a tile
-                } else if (mode === 'edit' && placingCheckout) {
-                  // Don't place checkout on a tile
-                }
-              }}
+              onPointerDown={(e) => onTilePointerDown(index, e)}
             >
+              {/* Walk order number */}
               {walkNum !== undefined && (
                 <div
                   className="absolute top-0.5 left-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-white/90 text-[8px] font-bold"
@@ -349,52 +489,50 @@ export function GridMapClient({ storeId, storeName, sections, storeMap, walkOrde
                   {walkNum}
                 </div>
               )}
-              <span className="text-base">{section.icon}</span>
-              {(block.width >= 2 || block.height >= 2) && (
-                <span className="text-[9px] text-white font-semibold leading-tight text-center truncate max-w-full px-1">
-                  {section.name_nn}
+
+              {/* Remove button - only in edit mode, top-right corner */}
+              {mode === 'edit' && (
+                <button
+                  onPointerDown={(e) => removeBlock(index, e)}
+                  className="absolute -top-1.5 -right-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-red-500 text-white text-[11px] font-bold shadow-md hover:bg-red-600"
+                  style={{ zIndex: 25 }}
+                >
+                  ×
+                </button>
+              )}
+
+              {/* Icon */}
+              <span className="text-base leading-none">{section.icon}</span>
+
+              {/* Label: rotate 90° for tall narrow tiles */}
+              {isLargeEnough && (
+                <span
+                  className="text-[9px] text-white font-semibold leading-tight text-center truncate max-w-full px-1"
+                  style={isTallNarrow ? {
+                    writingMode: 'vertical-rl',
+                    textOrientation: 'mixed',
+                    maxHeight: '100%',
+                    maxWidth: 'none',
+                  } : undefined}
+                >
+                  {tileLabel}
                 </span>
               )}
 
-              {/* Resize / remove controls in edit mode */}
+              {/* Edge drag hints in edit mode */}
               {mode === 'edit' && (
-                <div className="absolute -bottom-0.5 -right-0.5 flex gap-0.5" style={{ zIndex: 10 }}>
-                  <button
-                    onClick={(e) => { e.stopPropagation(); resizeBlock(index, 1, 0) }}
-                    className="flex h-4 w-4 items-center justify-center rounded-full bg-white shadow text-[10px] text-[#64748B] hover:text-primary"
-                    title="Breiare"
-                  >
-                    →
-                  </button>
-                  <button
-                    onClick={(e) => { e.stopPropagation(); resizeBlock(index, 0, 1) }}
-                    className="flex h-4 w-4 items-center justify-center rounded-full bg-white shadow text-[10px] text-[#64748B] hover:text-primary"
-                    title="Høgare"
-                  >
-                    ↓
-                  </button>
-                  <button
-                    onClick={(e) => { e.stopPropagation(); resizeBlock(index, -1, 0) }}
-                    className="flex h-4 w-4 items-center justify-center rounded-full bg-white shadow text-[10px] text-[#64748B] hover:text-primary"
-                    title="Smalare"
-                  >
-                    ←
-                  </button>
-                  <button
-                    onClick={(e) => { e.stopPropagation(); resizeBlock(index, 0, -1) }}
-                    className="flex h-4 w-4 items-center justify-center rounded-full bg-white shadow text-[10px] text-[#64748B] hover:text-primary"
-                    title="Lågare"
-                  >
-                    ↑
-                  </button>
-                  <button
-                    onClick={(e) => { e.stopPropagation(); removeBlock(index) }}
-                    className="flex h-4 w-4 items-center justify-center rounded-full bg-red-500 shadow text-white text-[10px]"
-                    title="Fjern"
-                  >
-                    ×
-                  </button>
-                </div>
+                <>
+                  {/* Right edge hint */}
+                  <div
+                    className="absolute top-1 bottom-1 right-0 w-1 rounded-r bg-white/40"
+                    style={{ zIndex: 6 }}
+                  />
+                  {/* Bottom edge hint */}
+                  <div
+                    className="absolute left-1 right-1 bottom-0 h-1 rounded-b bg-white/40"
+                    style={{ zIndex: 6 }}
+                  />
+                </>
               )}
             </div>
           )
@@ -429,36 +567,10 @@ export function GridMapClient({ storeId, storeName, sections, storeMap, walkOrde
         </div>
       </div>
 
-      {/* Legend */}
+      {/* Short legend */}
       <div className="flex items-center justify-between mt-3 text-xs text-[#94A3B8]">
         <span>🚪 {t('map.entrance')} · 💳 {t('map.checkout')}</span>
         <span suppressHydrationWarning>{blocks.length} seksjonar plasserte</span>
-      </div>
-
-      {/* Section list below map */}
-      <div className="mt-4 space-y-1">
-        {blocks
-          .sort((a, b) => (walkOrderMap[a.section_id] ?? 999) - (walkOrderMap[b.section_id] ?? 999))
-          .map((block, idx) => {
-            const section = sectionMap[block.section_id]
-            if (!section) return null
-            const walkNum = walkOrderMap[block.section_id]
-            return (
-              <div key={idx} className="flex items-center gap-2 rounded-lg p-2 bg-white border border-[#E2E8F0]">
-                <span
-                  className="flex items-center justify-center h-5 w-5 rounded-full text-[10px] font-bold text-white"
-                  style={{ backgroundColor: section.color }}
-                >
-                  {walkNum}
-                </span>
-                <span className="text-sm">{section.icon}</span>
-                <span className="text-sm font-medium text-[#0F172A]">{section.name_nn}</span>
-                <span className="text-[10px] text-[#94A3B8] ml-auto">
-                  {block.width}×{block.height}
-                </span>
-              </div>
-            )
-          })}
       </div>
 
       {/* Save button (edit mode) */}
