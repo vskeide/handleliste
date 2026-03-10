@@ -2,7 +2,6 @@
 
 import { useState, useRef, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
-import Link from 'next/link'
 import { t } from '@/lib/i18n'
 import { saveStoreMap } from '@/lib/actions/stores'
 import { Button } from '@/components/ui/button'
@@ -277,9 +276,9 @@ export function GridMapClient({ storeId, storeName, sections, storeMap, walkOrde
     <div className="mx-auto max-w-lg px-4 pt-6 pb-24">
       {/* Header */}
       <div className="flex items-center gap-3 mb-4">
-        <Link href={`/butikkar/${storeId}`} className="text-[#64748B] hover:text-[#0F172A]">
+        <button onClick={() => router.back()} className="text-[#64748B] hover:text-[#0F172A]">
           <ArrowLeft className="h-5 w-5" />
-        </Link>
+        </button>
         <div className="flex-1 min-w-0">
           <h1 className="text-lg font-bold text-[#0F172A]">{t('map.title')}</h1>
           <p className="text-xs text-[#64748B]">{storeName}</p>

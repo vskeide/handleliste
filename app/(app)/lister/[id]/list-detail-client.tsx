@@ -25,7 +25,7 @@ interface Props {
 
 export function ListDetailClient({ list, sections, walkOrder, householdStores }: Props) {
   const router = useRouter()
-  const { items: listItems, loading } = useRealtimeList(list.id)
+  const { items: listItems, loading, optimisticToggle, optimisticRemove } = useRealtimeList(list.id)
   const [searchQuery, setSearchQuery] = useState('')
   const [searchResults, setSearchResults] = useState<any[]>([])
   const [highlightIndex, setHighlightIndex] = useState(0)
@@ -142,10 +142,14 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores }:
   }
 
   async function handleToggle(listItemId: string, currentChecked: boolean) {
+    // Optimistic update: immediately reflect in UI
+    optimisticToggle(listItemId, !currentChecked)
     await toggleListItem(listItemId, !currentChecked)
   }
 
   async function handleRemove(listItemId: string) {
+    // Optimistic update: immediately remove from UI
+    optimisticRemove(listItemId)
     await removeListItem(listItemId)
   }
 
@@ -212,6 +216,8 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores }:
                 <MoreVertical className="h-5 w-5" />
               </button>
               {showMenu && (
+                <>
+                <div className="fixed inset-0 z-40" onClick={() => setShowMenu(false)} />
                 <div className="absolute right-0 top-8 bg-white rounded-lg shadow-lg border py-1 w-48 z-50">
                   {checkedCount > 0 && (
                     <button
@@ -239,6 +245,7 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores }:
                     Slett liste
                   </button>
                 </div>
+                </>
               )}
             </div>
           </div>
@@ -294,7 +301,9 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores }:
 
       {/* Store selector dropdown */}
       {showStoreSelector && (
-        <div className="border-b bg-white px-4 py-3 space-y-2">
+        <>
+        <div className="fixed inset-0 z-30" onClick={() => setShowStoreSelector(false)} />
+        <div className="relative z-40 border-b bg-white px-4 py-3 space-y-2">
           {householdStores.map((hs: any) => {
             const store = hs.stores
             const cc = CHAIN_COLORS[store.chain]
@@ -310,6 +319,7 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores }:
             )
           })}
         </div>
+        </>
       )}
 
       {/* Search overlay */}

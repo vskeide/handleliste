@@ -37,7 +37,15 @@ export function useRealtimeList(listId: string) {
         (payload) => {
           switch (payload.eventType) {
             case 'INSERT':
-              setItems((prev) => [...prev, payload.new as ListItem])
+              setItems((prev) => {
+                // Avoid duplicates (if optimistic add already inserted it)
+                if (prev.some((i) => i.id === (payload.new as ListItem).id)) {
+                  return prev.map((i) =>
+                    i.id === (payload.new as ListItem).id ? (payload.new as ListItem) : i
+                  )
+                }
+                return [...prev, payload.new as ListItem]
+              })
               break
             case 'UPDATE':
               setItems((prev) =>
@@ -63,5 +71,21 @@ export function useRealtimeList(listId: string) {
     }
   }, [listId, fetchItems])
 
-  return { items, loading, refetch: fetchItems }
+  // Optimistic update: toggle an item's checked state immediately
+  const optimisticToggle = useCallback((itemId: string, isChecked: boolean) => {
+    setItems((prev) =>
+      prev.map((item) =>
+        item.id === itemId
+          ? { ...item, is_checked: isChecked, checked_at: isChecked ? new Date().toISOString() : null }
+          : item
+      )
+    )
+  }, [])
+
+  // Optimistic update: remove an item immediately
+  const optimisticRemove = useCallback((itemId: string) => {
+    setItems((prev) => prev.filter((item) => item.id !== itemId))
+  }, [])
+
+  return { items, loading, refetch: fetchItems, optimisticToggle, optimisticRemove }
 }
