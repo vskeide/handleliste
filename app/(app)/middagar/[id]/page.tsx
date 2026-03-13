@@ -3,7 +3,8 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { getMeal, addMealItem, removeMealItem } from '@/lib/actions/meals'
+import { getMeal, addMealItem, removeMealItem, updateMealItemQuantity } from '@/lib/actions/meals'
+import { QuantityPickerSheet, formatQuantityDisplay } from '@/components/quantity-picker-sheet'
 import { searchItems, createItem } from '@/lib/actions/items'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -23,6 +24,7 @@ export default function MealDetailPage() {
   const [sections, setSections] = useState<Section[]>([])
   const [showSectionPicker, setShowSectionPicker] = useState(false)
   const [newItemName, setNewItemName] = useState('')
+  const [editingMealItemId, setEditingMealItemId] = useState<string | null>(null)
   const searchRef = useRef<HTMLInputElement>(null)
 
   async function loadMeal() {
@@ -77,7 +79,18 @@ export default function MealDetailPage() {
     setTimeout(() => searchRef.current?.focus(), 50)
   }
 
-  async function handleRemoveItem(mealItemId: string) {
+  async function handleMealItemQuantityUpdate(mealItemId: string, quantity: string) {
+    setMeal((prev: any) => ({
+      ...prev,
+      meal_items: prev.meal_items.map((mi: any) =>
+        mi.id === mealItemId ? { ...mi, quantity } : mi
+      ),
+    }))
+    setEditingMealItemId(null)
+    await updateMealItemQuantity(mealItemId, quantity)
+  }
+
+    async function handleRemoveItem(mealItemId: string) {
     await removeMealItem(mealItemId)
     setMeal((prev: any) => ({
       ...prev,
@@ -217,7 +230,16 @@ export default function MealDetailPage() {
               >
                 <span className="text-sm">{mi.items?.sections?.icon}</span>
                 <span className="text-sm text-[#0F172A] flex-1">{mi.items?.name}</span>
-                <span className="text-xs text-[#94A3B8]">{mi.quantity}</span>
+                <button
+                  onClick={() => setEditingMealItemId(mi.id)}
+                  className={`text-xs flex-shrink-0 px-1.5 py-0.5 rounded-full transition-colors ${
+                    mi.quantity === '1'
+                      ? 'text-[#94A3B8]'
+                      : 'bg-[#D1FAE5] text-[#059669] font-medium'
+                  }`}
+                >
+                  {formatQuantityDisplay(mi.quantity)}
+                </button>
                 <button onClick={() => handleRemoveItem(mi.id)} className="text-[#94A3B8] hover:text-red-500 flex-shrink-0">
                   <X className="h-4 w-4" />
                 </button>
@@ -226,6 +248,18 @@ export default function MealDetailPage() {
           </div>
         )}
       </div>
+
+      {/* Quantity picker sheet */}
+      {editingMealItemId && (() => {
+        const mi = meal.meal_items.find((x: any) => x.id === editingMealItemId)
+        return mi ? (
+          <QuantityPickerSheet
+            currentQuantity={mi.quantity}
+            onSave={(q) => handleMealItemQuantityUpdate(mi.id, q)}
+            onClose={() => setEditingMealItemId(null)}
+          />
+        ) : null
+      })()}
 
       {/* FAB */}
       <div className="fixed bottom-20 right-4 z-30">

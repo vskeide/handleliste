@@ -141,3 +141,14 @@ export async function addMealToList(mealId: string, listId: string) {
 
   return { added: newItems.length, skipped: meal.meal_items.length - newItems.length }
 }
+
+export async function updateMealItemQuantity(mealItemId: string, quantity: string) {
+  const supabase = createServiceRoleClient()
+  const { error } = await supabase
+    .from('meal_items')
+    .update({ quantity })
+    .eq('id', mealItemId)
+
+  if (error) return { error: 'Kunne ikkje oppdatere mengde' }
+  return { success: true }
+}

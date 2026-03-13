@@ -6,13 +6,14 @@ import Link from 'next/link'
 import { t } from '@/lib/i18n'
 import { CHAIN_COLORS } from '@/lib/constants'
 import { useRealtimeList } from '@/lib/hooks/use-realtime-list'
-import { toggleListItem, addItemToList, removeListItem, uncheckAllItems } from '@/lib/actions/lists'
+import { toggleListItem, addItemToList, removeListItem, uncheckAllItems, updateListItemQuantity } from '@/lib/actions/lists'
 import { updateList, deleteList, saveAsTemplate } from '@/lib/actions/lists'
 import { searchItems, createItem, getHouseholdItems, updateItemSection } from '@/lib/actions/items'
 import { getMeals, addMealToList } from '@/lib/actions/meals'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
+import { QuantityPickerSheet, formatQuantityDisplay } from '@/components/quantity-picker-sheet'
 import { ArrowLeft, Plus, Search, X, Check, Trash2, Map, Store, RotateCcw, Bookmark, MoreVertical, UtensilsCrossed, Shuffle, ArrowRightLeft } from 'lucide-react'
 import type { Section, WalkOrder } from '@/lib/types'
 
@@ -25,7 +26,7 @@ interface Props {
 
 export function ListDetailClient({ list, sections, walkOrder, householdStores }: Props) {
   const router = useRouter()
-  const { items: listItems, loading, optimisticToggle, optimisticRemove } = useRealtimeList(list.id)
+  const { items: listItems, loading, optimisticToggle, optimisticRemove, optimisticUpdateQuantity } = useRealtimeList(list.id)
   const [searchQuery, setSearchQuery] = useState('')
   const [searchResults, setSearchResults] = useState<any[]>([])
   const [highlightIndex, setHighlightIndex] = useState(0)
@@ -40,6 +41,7 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores }:
   const [mealResults, setMealResults] = useState<any[]>([])
   const [movingItemId, setMovingItemId] = useState<string | null>(null)
   const [frihandelMode, setFrihandelMode] = useState(false)
+  const [editingQuantityId, setEditingQuantityId] = useState<string | null>(null)
   const searchRef = useRef<HTMLInputElement>(null)
   const [itemsMap, setItemsMap] = useState<Record<string, any>>({})
 
@@ -147,7 +149,13 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores }:
     await toggleListItem(listItemId, !currentChecked)
   }
 
-  async function handleRemove(listItemId: string) {
+  async function handleQuantityUpdate(listItemId: string, quantity: string) {
+    optimisticUpdateQuantity(listItemId, quantity)
+    setEditingQuantityId(null)
+    await updateListItemQuantity(listItemId, quantity)
+  }
+
+    async function handleRemove(listItemId: string) {
     // Optimistic update: immediately remove from UI
     optimisticRemove(listItemId)
     await removeListItem(listItemId)
@@ -529,7 +537,16 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores }:
                             </Badge>
                           )}
                         </div>
-                        <span className="text-xs text-[#94A3B8] flex-shrink-0">{li.quantity}</span>
+                        <button
+                          onClick={() => setEditingQuantityId(li.id)}
+                          className={`text-xs flex-shrink-0 px-1.5 py-0.5 rounded-full transition-colors ${
+                            li.quantity === '1'
+                              ? 'text-[#94A3B8]'
+                              : 'bg-[#D1FAE5] text-[#059669] font-medium'
+                          }`}
+                        >
+                          {formatQuantityDisplay(li.quantity)}
+                        </button>
                         <button onClick={() => handleRemove(li.id)} className="text-[#94A3B8] hover:text-red-500 flex-shrink-0">
                           <X className="h-4 w-4" />
                         </button>
@@ -633,7 +650,16 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores }:
                           >
                             <ArrowRightLeft className="h-3.5 w-3.5" />
                           </button>
-                          <span className="text-xs text-[#94A3B8] flex-shrink-0">{li.quantity}</span>
+                          <button
+                          onClick={() => setEditingQuantityId(li.id)}
+                          className={`text-xs flex-shrink-0 px-1.5 py-0.5 rounded-full transition-colors ${
+                            li.quantity === '1'
+                              ? 'text-[#94A3B8]'
+                              : 'bg-[#D1FAE5] text-[#059669] font-medium'
+                          }`}
+                        >
+                          {formatQuantityDisplay(li.quantity)}
+                        </button>
                           <button onClick={() => handleRemove(li.id)} className="text-[#94A3B8] hover:text-red-500 flex-shrink-0">
                             <X className="h-4 w-4" />
                           </button>
@@ -682,6 +708,18 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores }:
           </>
         )}
       </div>
+
+      {/* Quantity picker sheet */}
+      {editingQuantityId && (() => {
+        const li = listItems.find((x) => x.id === editingQuantityId)
+        return li ? (
+          <QuantityPickerSheet
+            currentQuantity={li.quantity}
+            onSave={(q) => handleQuantityUpdate(li.id, q)}
+            onClose={() => setEditingQuantityId(null)}
+          />
+        ) : null
+      })()}
 
       {/* Bottom actions */}
       <div className="fixed bottom-20 right-4 z-30">
