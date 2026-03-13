@@ -87,6 +87,14 @@ export function useRealtimeList(listId: string) {
     setItems((prev) => prev.filter((item) => item.id !== itemId))
   }, [])
 
+  // Optimistic update: add an item immediately
+  const optimisticAdd = useCallback((item: ListItem) => {
+    setItems((prev) => {
+      if (prev.some((i) => i.id === item.id)) return prev
+      return [...prev, item]
+    })
+  }, [])
+
   // Optimistic update: update an item's quantity immediately
   const optimisticUpdateQuantity = useCallback((itemId: string, quantity: string) => {
     setItems((prev) =>
@@ -94,5 +102,5 @@ export function useRealtimeList(listId: string) {
     )
   }, [])
 
-  return { items, loading, refetch: fetchItems, optimisticToggle, optimisticRemove, optimisticUpdateQuantity }
+  return { items, loading, refetch: fetchItems, optimisticToggle, optimisticRemove, optimisticUpdateQuantity, optimisticAdd }
 }

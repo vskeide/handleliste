@@ -26,7 +26,7 @@ interface Props {
 
 export function ListDetailClient({ list, sections, walkOrder, householdStores }: Props) {
   const router = useRouter()
-  const { items: listItems, loading, optimisticToggle, optimisticRemove, optimisticUpdateQuantity } = useRealtimeList(list.id)
+  const { items: listItems, loading, optimisticToggle, optimisticRemove, optimisticUpdateQuantity, optimisticAdd } = useRealtimeList(list.id)
   const [searchQuery, setSearchQuery] = useState('')
   const [searchResults, setSearchResults] = useState<any[]>([])
   const [highlightIndex, setHighlightIndex] = useState(0)
@@ -101,7 +101,8 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores }:
   }, [listItems, meals])
 
   async function handleAddItem(itemId: string) {
-    await addItemToList(list.id, itemId)
+    const result = await addItemToList(list.id, itemId)
+    if (result.listItem) optimisticAdd(result.listItem)
     setSearchQuery('')
     setSearchResults([])
     // Keep search open and refocus for quick consecutive adds
@@ -111,7 +112,8 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores }:
   async function handleCreateAndAdd(sectionId: string) {
     const result = await createItem(newItemName, sectionId)
     if (result.item) {
-      await addItemToList(list.id, result.item.id)
+      const addResult = await addItemToList(list.id, result.item.id)
+      if (addResult.listItem) optimisticAdd(addResult.listItem)
       // Add the new item to the local items map immediately
       setItemsMap((prev) => ({ ...prev, [result.item.id]: { ...result.item, sections: sections.find((s) => s.id === sectionId) } }))
     }
@@ -539,10 +541,10 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores }:
                         </div>
                         <button
                           onClick={() => setEditingQuantityId(li.id)}
-                          className={`text-xs flex-shrink-0 px-1.5 py-0.5 rounded-full transition-colors ${
+                          className={`text-sm flex-shrink-0 min-w-[2rem] text-center px-2 py-1 rounded-lg border transition-colors ${
                             li.quantity === '1'
-                              ? 'text-[#94A3B8]'
-                              : 'bg-[#D1FAE5] text-[#059669] font-medium'
+                              ? 'text-[#94A3B8] border-[#E2E8F0] hover:border-primary/40'
+                              : 'bg-[#D1FAE5] text-[#059669] font-semibold border-[#A7F3D0]'
                           }`}
                         >
                           {formatQuantityDisplay(li.quantity)}
@@ -652,10 +654,10 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores }:
                           </button>
                           <button
                           onClick={() => setEditingQuantityId(li.id)}
-                          className={`text-xs flex-shrink-0 px-1.5 py-0.5 rounded-full transition-colors ${
+                          className={`text-sm flex-shrink-0 min-w-[2rem] text-center px-2 py-1 rounded-lg border transition-colors ${
                             li.quantity === '1'
-                              ? 'text-[#94A3B8]'
-                              : 'bg-[#D1FAE5] text-[#059669] font-medium'
+                              ? 'text-[#94A3B8] border-[#E2E8F0] hover:border-primary/40'
+                              : 'bg-[#D1FAE5] text-[#059669] font-semibold border-[#A7F3D0]'
                           }`}
                         >
                           {formatQuantityDisplay(li.quantity)}

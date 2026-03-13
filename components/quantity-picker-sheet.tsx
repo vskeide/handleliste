@@ -62,11 +62,10 @@ export function QuantityPickerSheet({ currentQuantity, onSave, onClose }: Props)
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/40" onClick={onClose} />
-      <div className="relative bg-white rounded-t-2xl px-6 pt-6 pb-8 w-full shadow-xl">
-        <div className="w-10 h-1 bg-[#E2E8F0] rounded-full mx-auto mb-5" />
-        <h3 className="text-base font-semibold text-[#0F172A] mb-5">Mengde</h3>
+      <div className="relative bg-white rounded-2xl px-6 pt-6 pb-6 w-full max-w-sm shadow-xl">
+        <h3 className="text-base font-semibold text-[#0F172A] mb-5 text-center">Mengde</h3>
 
         {/* Stepper */}
         <div className="flex items-center justify-center gap-5 mb-6">
