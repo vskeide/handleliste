@@ -29,7 +29,8 @@ export function useOutbox(listId: string, run: (write: PendingWrite) => Promise<
     }
   }, [listId, flush])
   const enqueue = (op: OutboxOp) => { queue.current?.enqueue(op); if (navigator.onLine) void flush() }
+  const enqueueMany = (ops: OutboxOp[]) => { queue.current?.enqueueMany(ops); if (navigator.onLine) void flush() }
   const retry = () => { queue.current?.retry(); void flush() }
   const discard = () => { queue.current?.discard(); callbacks.current.onDrained() }
-  return { enqueue, retry, discard, pending: queue.current?.entries ?? [], waiting: queue.current?.entries.length ?? 0, error: queue.current?.error ?? null }
+  return { enqueue, enqueueMany, retry, discard, pending: queue.current?.entries ?? [], waiting: queue.current?.entries.length ?? 0, error: queue.current?.error ?? null }
 }

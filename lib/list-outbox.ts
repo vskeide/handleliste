@@ -95,7 +95,11 @@ export class ListOutbox {
     } catch { this.error = 'Lagring på telefonen er full. Hald sida open og prøv igjen.' }
     this.changed()
   }
-  enqueue(op: OutboxOp) { this.entries = [...this.entries, { id: crypto.randomUUID(), op: remapOperation(op, this.aliases) }]; this.persist() }
+  enqueue(op: OutboxOp) { this.enqueueMany([op]) }
+  enqueueMany(ops: OutboxOp[]) {
+    this.entries = [...this.entries, ...ops.map(op => ({ id: crypto.randomUUID(), op: remapOperation(op, this.aliases) }))]
+    this.persist()
+  }
   stop() { this.active = false }
   discard() { if (this.busy) return; this.entries = []; this.error = null; this.persist() }
   async flush(run: (write: PendingWrite) => Promise<WriteResult>, onSent: (write: PendingWrite, result: WriteResult) => void, drained: () => void) {

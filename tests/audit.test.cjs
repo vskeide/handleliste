@@ -163,6 +163,32 @@ function memoryStorage() {
 }
 const outboxModule = () => loadTs('lib/list-outbox.ts')
 
+test('clearing a list persists all removals together and resumes after an interrupted sync', async () => {
+  const { ListOutbox, overlayWrites } = outboxModule()
+  const storage = memoryStorage(); let saves = 0
+  const q = new ListOutbox('queue', { ...storage, setItem(k,v) { saves++; storage.setItem(k,v) } }, () => {})
+  // Include a not-yet-synced addition and an already picked line.
+  q.enqueue({ kind:'add', clientId:'temporary', itemId:'item' })
+  const lines = [{id:'picked',item_id:'picked',is_checked:true}, {id:'temporary',item_id:'item',is_checked:false}]
+  const before = saves
+  q.enqueueMany(lines.map(l => ({kind:'remove',listItemId:l.id})))
+  assert.equal(saves,before+1)
+  assert.deepEqual(overlayWrites(lines,q.entries,'list'),[])
+  await q.flush(async w => {
+    if(w.op.kind==='add') return {aliases:{temporary:'confirmed'}}
+    throw new Error('Offline')
+  }, () => {}, () => {})
+  const restored = new ListOutbox('queue',storage,()=>{}); restored.restore()
+  assert.equal(restored.entries.length,2)
+  const sent=[]
+  await restored.flush(async w => {sent.push(w.op.listItemId);return {}},()=>{},()=>{})
+  assert.deepEqual(sent,['picked','confirmed'])
+  assert.equal(restored.entries.length,0)
+  // Clear targets the confirmed snapshot, preserving additions from another phone.
+  const confirmed = lines.map(l=>({...l,id:l.id==='temporary'?'confirmed':l.id}))
+  assert.deepEqual(overlayWrites([...confirmed,{id:'later',item_id:'later'}],q.entries,'list').map(l=>l.id),['later'])
+})
+
 test('online writes are serial and dependent operations use the confirmed line ID', async () => {
   const { ListOutbox } = outboxModule()
   const q = new ListOutbox('queue', memoryStorage(), () => {})

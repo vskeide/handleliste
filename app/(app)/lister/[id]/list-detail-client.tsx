@@ -513,6 +513,16 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores, i
     setShowMenu(false)
   }
 
+  function handleClearList() {
+    setShowMenu(false)
+    if (!listItems.length || busyCopy) return
+    if (!confirm('Tømme lista? Alle varene blir fjerna, også dei som er plukka. Sjølve lista blir ståande.')) return
+    // Persist every removal together, then reuse the retry-safe online/offline queue.
+    // Target this snapshot so another phone's later additions are not removed.
+    outbox.enqueueMany(listItems.map(li => ({ kind: 'remove', listItemId: li.id })))
+    setShowPicked(false)
+  }
+
   async function handleSaveTemplate() {
     if (!templateName.trim()) return
     if (outbox.waiting) { setNotice('Vent til endringane er lagra før du lagrar malen'); return }
@@ -572,7 +582,7 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores, i
               <Plus className="h-5 w-5" />
             </button>
             <div className="relative">
-              <button onClick={() => setShowMenu(!showMenu)} className="text-[#64748B]">
+              <button onClick={() => setShowMenu(!showMenu)} className="text-[#64748B]" aria-label="Listeval" aria-expanded={showMenu}>
                 <MoreVertical className="h-5 w-5" />
               </button>
               {showMenu && (
@@ -602,6 +612,16 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores, i
                     >
                       <Bookmark className="h-4 w-4 text-[#64748B]" />
                       Lagre som mal
+                    </button>
+                  )}
+                  {totalItems > 0 && (
+                    <button
+                      onClick={handleClearList}
+                      disabled={busyCopy}
+                      className="flex items-center gap-2 w-full min-h-11 px-3 py-2 text-sm text-left hover:bg-[#F1F5F9] text-red-600 disabled:opacity-40"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                      Tøm liste
                     </button>
                   )}
                   <button
