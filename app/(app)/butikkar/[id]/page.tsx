@@ -8,8 +8,9 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { ArrowLeft, Map, ListOrdered, MapPin } from 'lucide-react'
 
-export default async function StoreDetailPage({ params }: { params: { id: string } }) {
-  const householdId = requireSession()
+export default async function StoreDetailPage({ params: pendingParams }: { params: Promise<{ id: string }> }) {
+  const params = await pendingParams
+  const householdId = await requireSession()
 
   const supabase = createServiceRoleClient()
   const { data: store } = await supabase

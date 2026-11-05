@@ -5,6 +5,7 @@ import type { RealtimeChannel } from '@supabase/supabase-js'
 import { createClient } from '@/lib/supabase/client'
 import { getListItems } from '@/lib/actions/lists'
 import type { ListItem } from '@/lib/types'
+import type { WriteResult } from '@/lib/list-outbox'
 
 // Live sync without giving the browser table access.
 // The browser can no longer read tables (Row Level Security is on), so:
@@ -20,28 +21,32 @@ export function useRealtimeList(listId: string, initialLines?: ListItem[]) {
   const [items, setItems] = useState<ListItem[]>(initialLines ?? [])
   const [loading, setLoading] = useState(!initialLines)
   const channelRef = useRef<RealtimeChannel | null>(null)
-  // Lines shown optimistically that the server hasn't confirmed yet. A refetch that
-  // lands in between must not make them blink out.
-  const pendingRef = useRef<Set<string>>(new Set())
+  const revision = useRef(0)
+  const requestNumber = useRef(0)
 
   const fetchItems = useCallback(async () => {
+    const started = revision.current
+    const request = ++requestNumber.current
     let data: ListItem[] | null = null
     try {
       data = (await getListItems(listId)) as ListItem[] | null
     } catch {
       // Offline: keep what is on screen
     }
-    if (data) {
-      setItems((prev) => {
-        const serverIds = new Set(data.map((d) => d.id))
-        const stillPending = prev.filter((p) => pendingRef.current.has(p.id) && !serverIds.has(p.id))
-        return [...data, ...stillPending]
-      })
+    if (data && started === revision.current && request === requestNumber.current) {
+      try { localStorage.setItem(`handleliste-lines-${listId}`, JSON.stringify(data)) } catch {}
+      setItems(data)
     }
     setLoading(false)
   }, [listId])
 
   useEffect(() => {
+    if (!navigator.onLine) {
+      try {
+        const cached = JSON.parse(localStorage.getItem(`handleliste-lines-${listId}`) || 'null')
+        if (Array.isArray(cached) && cached.every(l => l && typeof l.id === 'string' && typeof l.item_id === 'string' && typeof l.quantity === 'string')) setItems(cached)
+      } catch {}
+    }
     if (!initialLines) fetchItems()
 
     const supabase = createClient()
@@ -69,65 +74,21 @@ export function useRealtimeList(listId: string, initialLines?: ListItem[]) {
     channelRef.current?.send({ type: 'broadcast', event: 'changed', payload: {} })
   }, [])
 
-  // Optimistic update: toggle an item's checked state immediately
-  const optimisticToggle = useCallback((itemId: string, isChecked: boolean) => {
-    setItems((prev) =>
-      prev.map((item) =>
-        item.id === itemId
-          ? { ...item, is_checked: isChecked, checked_at: isChecked ? new Date().toISOString() : null }
-          : item
-      )
-    )
-  }, [])
-
-  // Optimistic update: remove an item immediately
-  const optimisticRemove = useCallback((itemId: string) => {
-    setItems((prev) => prev.filter((item) => item.id !== itemId))
-  }, [])
-
-  // Optimistic update: add an item immediately (mark it pending until confirmAdd)
-  const optimisticAdd = useCallback((item: ListItem, pending = false) => {
-    if (pending) pendingRef.current.add(item.id)
-    setItems((prev) => {
-      if (prev.some((i) => i.id === item.id)) return prev
-      return [...prev, item]
+  const acceptWrite = useCallback((result: WriteResult) => {
+    revision.current++
+    setItems(prev => {
+      const updated = new Map((result.lines ?? []).map(l => [l.id, l]))
+      const next = prev.filter(l => l.id !== result.removed && !updated.has(l.id)).concat(Array.from(updated.values()))
+      try { localStorage.setItem(`handleliste-lines-${listId}`, JSON.stringify(next)) } catch {}
+      return next
     })
-  }, [])
-
-  /** The server stored the line: swap in the server row (its id may differ if it existed). */
-  const confirmAdd = useCallback((clientId: string, row: ListItem) => {
-    pendingRef.current.delete(clientId)
-    setItems((prev) => {
-      const without = prev.filter((i) => i.id !== clientId && i.id !== row.id)
-      const at = prev.findIndex((i) => i.id === clientId)
-      if (at < 0) return [...without, row]
-      return [...without.slice(0, at), row, ...without.slice(at)]
-    })
-  }, [])
-
-  // Optimistic update: update an item's quantity immediately
-  const optimisticUpdateQuantity = useCallback((itemId: string, quantity: string) => {
-    setItems((prev) =>
-      prev.map((item) => item.id === itemId ? { ...item, quantity } : item)
-    )
-  }, [])
-
-  /** Drop a line that the server refused (undo of an optimistic add). */
-  const rollbackAdd = useCallback((clientId: string) => {
-    pendingRef.current.delete(clientId)
-    setItems((prev) => prev.filter((i) => i.id !== clientId))
-  }, [])
+  }, [listId])
 
   return {
+    acceptWrite,
     items,
-    rollbackAdd,
-    confirmAdd,
     loading,
     refetch: fetchItems,
     notifyChanged,
-    optimisticToggle,
-    optimisticRemove,
-    optimisticUpdateQuantity,
-    optimisticAdd,
   }
 }

@@ -1,8 +1,8 @@
 import { NavBar } from '@/components/nav-bar'
 import { requireSession } from '@/lib/session'
 
-export default function AppLayout({ children }: { children: React.ReactNode }) {
-  requireSession()
+export default async function AppLayout({ children }: { children: React.ReactNode }) {
+  await requireSession()
 
   return (
     <div className="min-h-screen bg-[#FAFAFA] pb-20">

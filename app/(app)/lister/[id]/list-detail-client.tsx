@@ -8,20 +8,21 @@ import Link from 'next/link'
 import { t } from '@/lib/i18n'
 import { CHAIN_COLORS } from '@/lib/constants'
 import { useRealtimeList } from '@/lib/hooks/use-realtime-list'
-import { toggleListItem, addItemToList, removeListItem, uncheckAllItems, updateListItemQuantity, copyFromPreviousList, addLinesToList } from '@/lib/actions/lists'
 import { updateList, deleteList, saveAsTemplate } from '@/lib/actions/lists'
-import { createItemAndAddToList, getHouseholdItems, updateItemSection } from '@/lib/actions/items'
-import { getMeals, addMealToList, createMeal } from '@/lib/actions/meals'
+import { getHouseholdItems, updateItemSection } from '@/lib/actions/items'
+import { createMeal } from '@/lib/actions/meals'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { QuantityPickerSheet, formatQuantityDisplay, parseQuantity } from '@/components/quantity-picker-sheet'
 import { NextItemMode, type NextItemEntry } from '@/components/next-item-mode'
 import { ItemName } from '@/components/item-name'
-import { useOutbox, isNetworkError, type OutboxOp } from '@/lib/hooks/use-outbox'
+import { useOutbox, type OutboxOp } from '@/lib/hooks/use-outbox'
+import { overlayWrites, type BatchLine } from '@/lib/list-outbox'
+import { applyListWrite } from '@/lib/actions/list-writes'
 import { searchAll, resolveName, guessSection, displayName, type KnownItem } from '@/lib/match'
 import { parseEntry, splitEntries, isMultiEntry } from '@/lib/parse-list'
-import { scaleQty } from '@/lib/quantity'
+import { scaleQty, addQty } from '@/lib/quantity'
 import type { CatalogProduct } from '@/lib/catalog-data'
 import { STARTER_MEALS, type StarterMeal } from '@/lib/starter-meals'
 import { ArrowLeft, Plus, Search, X, Check, Trash2, Map, Store, RotateCcw, Bookmark, MoreVertical, UtensilsCrossed, Shuffle, ArrowRightLeft, Play, Pencil, CloudOff, History, MapPin, Users } from 'lucide-react'
@@ -33,6 +34,7 @@ interface Props {
   walkOrder: WalkOrder[]
   householdStores: any[]
   initialItems: any[]
+  initialMeals: any[]
   initialLines: ListItem[]
   householdSize: number | null   // dinner portions (adults + ½ × children)
   householdLabel: string         // "2 vaksne + 3 born"
@@ -49,28 +51,23 @@ function newId(): string {
       })
 }
 
-/** Rank household items against what the user has typed. Runs on the phone, instantly. */
-function searchLocal(all: any[], query: string, limit = 20) {
-  const q = query.trim().toLocaleLowerCase('nn')
-  if (!q) return []
-  const scored: { item: any; score: number }[] = []
-  for (const item of all) {
-    const name = (item.name || '').toLocaleLowerCase('nn')
-    const at = name.indexOf(q)
-    if (at < 0) continue
-    // 0 = starts with, 1 = a word starts with, 2 = anywhere
-    const rank = at === 0 ? 0 : /[\s(\-/]/.test(name[at - 1]) ? 1 : 2
-    scored.push({ item, score: rank * 1e6 - (item.times_purchased || 0) * 100 + name.length })
-  }
-  scored.sort((a, b) => a.score - b.score)
-  return scored.slice(0, limit).map((s) => s.item)
-}
-
-export function ListDetailClient({ list, sections, walkOrder, householdStores, initialItems, initialLines, householdSize, householdLabel, itemRoutes, sectionRoutes }: Props) {
+export function ListDetailClient({ list, sections, walkOrder, householdStores, initialItems, initialMeals, initialLines, householdSize, householdLabel, itemRoutes, sectionRoutes }: Props) {
   const router = useRouter()
-  const { items: listItems, loading, refetch, notifyChanged, optimisticToggle, optimisticRemove, optimisticUpdateQuantity, optimisticAdd, confirmAdd, rollbackAdd } = useRealtimeList(list.id, initialLines)
+  const { items: serverItems, loading, refetch, notifyChanged, acceptWrite } = useRealtimeList(list.id, initialLines)
+  const outbox = useOutbox(list.id, write => applyListWrite(list.id, write), (_write, result) => {
+    acceptWrite(result)
+    setItemsMap(prev => {
+      const next = { ...prev }
+      for (const [oldId, newId] of Object.entries(result.aliases ?? {})) if (oldId !== newId) delete next[oldId]
+      for (const item of result.items ?? []) next[item.id] = item
+      return next
+    })
+    notifyChanged()
+  }, () => { void refetch(); notifyChanged() })
+  const listItems = overlayWrites(serverItems, outbox.pending, list.id)
+  const [showPicked, setShowPicked] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
-  const [busyCopy, setBusyCopy] = useState(false)
+  const busyCopy = outbox.pending.some(w => w.op.kind === 'copy')
   const keyboardArea = useKeyboardViewport()
   const [portionPicker, setPortionPicker] = useState<{ mealId: string; name: string; icon: string; portions: number } | null>(null)
   const [inputFocused, setInputFocused] = useState(false)
@@ -84,7 +81,7 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores, i
   const [showMenu, setShowMenu] = useState(false)
   const [showTemplateSave, setShowTemplateSave] = useState(false)
   const [templateName, setTemplateName] = useState('')
-  const [meals, setMeals] = useState<any[]>([])
+  const meals = initialMeals
   const [mealResults, setMealResults] = useState<any[]>([])
   const [movingItemId, setMovingItemId] = useState<string | null>(null)
   // View mode starts automatic: route order once this shop's route is learned for most
@@ -105,11 +102,30 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores, i
   const [editingQuantityId, setEditingQuantityId] = useState<string | null>(null)
   const [showNextMode, setShowNextMode] = useState(false)
   const searchRef = useRef<HTMLInputElement>(null)
-  const [itemsMap, setItemsMap] = useState<Record<string, any>>(() => {
+  const [storedItems, setItemsMap] = useState<Record<string, any>>(() => {
     const map: Record<string, any> = {}
     for (const item of initialItems) map[item.id] = item
     return map
   })
+
+  const skipMetadataSave = useRef(true)
+  useEffect(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(`handleliste-items-${list.id}`) || 'null')
+      if (saved && typeof saved === 'object' && !Array.isArray(saved)) setItemsMap(prev => ({ ...saved, ...prev }))
+    } catch {}
+  }, [list.id])
+  useEffect(() => {
+    if (skipMetadataSave.current) { skipMetadataSave.current = false; return }
+    try { localStorage.setItem(`handleliste-items-${list.id}`, JSON.stringify(storedItems)) } catch {}
+  }, [storedItems, list.id])
+  const itemsMap = { ...storedItems }
+  for (const { op } of outbox.pending) {
+    const snapshots = op.kind === 'batch' ? op.lines : (op.kind === 'add' || op.kind === 'create') ? [op] : []
+    for (const item of snapshots) if (item.name && !itemsMap[item.itemId]) itemsMap[item.itemId] = {
+      id: item.itemId, name: item.name, section_id: item.sectionId, times_purchased: 0, is_confirmed: true,
+    }
+  }
 
   // Items arrive with the page. Only refetch them if a line shows up for an item we
   // don't know yet (created on the other phone).
@@ -122,7 +138,7 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores, i
         for (const item of results) map[item.id] = { ...prev[item.id], ...item }
         return map
       })
-    })
+    }).catch(() => {})
   }, [unknownItem])
 
   useEffect(() => {
@@ -131,9 +147,6 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores, i
     return () => clearTimeout(t)
   }, [notice])
 
-  useEffect(() => {
-    getMeals().then(setMeals)
-  }, [])
 
   const sectionMap: Record<string, Section> = {}
   sections.forEach((s) => { sectionMap[s.id] = s })
@@ -261,7 +274,6 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores, i
       ...prev,
       [itemId]: { id: itemId, name: product.name, section_id: sectionId, times_purchased: 0, is_confirmed: true, check_count: 0, check_order_sum: 0 },
     }))
-    optimisticAdd(draftLine(clientId, itemId, qty), true)
     send({ kind: 'create', clientId, itemId, name: product.name, sectionId, quantity: qty, confirmed: true })
   }
 
@@ -293,18 +305,12 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores, i
         lines.push({ itemId: id, quantity, create: { name: displayName(name), sectionId } })
         newItems[id] = { id, name: displayName(name), section_id: sectionId, times_purchased: 0, is_confirmed: false }
       }
+      const last = lines[lines.length - 1]
+      if (last?.create) known.push({ id: last.itemId, name: last.create.name, section_id: last.create.sectionId })
     }
     if (!lines.length) return
     setItemsMap((prev) => ({ ...prev, ...newItems }))
-    try {
-      const r: any = await addLinesToList(list.id, lines)
-      if (r?.error) { setNotice(r.error); return }
-      await refetch()
-      notifyChanged()
-      setNotice(r.summary + (r.created ? ` · ${r.created} nye varer` : ''))
-    } catch {
-      setNotice('Ingen nett – prøv igjen når du er på nett')
-    }
+    queueBatch(lines)
   }
 
   /** A starter dinner: scale to the household and add, creating items as needed. */
@@ -325,18 +331,10 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores, i
       const sectionId = (product && sectionIdByName[product.section]) || fallbackSectionId
       lines.push({ itemId: id, quantity, create: { name, sectionId } })
       newItems[id] = { id, name, section_id: sectionId, times_purchased: 0, is_confirmed: true }
+      known.push({ id, name, section_id: sectionId })
     }
     setItemsMap((prev) => ({ ...prev, ...newItems }))
-    try {
-      const r: any = await addLinesToList(list.id, lines)
-      if (r?.error) { setNotice(r.error); return }
-      await refetch()
-      notifyChanged()
-      const forWhom = factor === 1 ? '' : people ? ` (${people} porsjonar)` : householdLabel ? ` (for ${householdLabel})` : ''
-      setNotice(`${meal.icon} ${meal.name}${forWhom}: ${r.summary}`)
-    } catch {
-      setNotice('Ingen nett – prøv igjen når du er på nett')
-    }
+    queueBatch(lines)
   }
 
   function handleAddItem(itemId: string) {
@@ -356,10 +354,11 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores, i
     const active = listItems.find((li) => li.item_id === itemId && !li.is_checked)
     if (active) {
       const { amount, unit } = parseQuantity(active.quantity)
-      if (unit === 'stk') {
-        const next = String(amount + 1)
-        handleQuantityUpdate(active.id, next)
-        setNotice(`${name}: ×${next}`)
+      if (typedQty !== '1' && addQty(active.quantity, typedQty)) {
+        queueBatch([{ itemId, quantity: typedQty }])
+      } else if (unit === 'stk' && typedQty === '1') {
+        queueBatch([{ itemId, quantity: '1' }])
+        setNotice(`${name}: ×${amount + 1}`)
       } else {
         setEditingQuantityId(active.id)
       }
@@ -368,76 +367,37 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores, i
 
     // Already on the list but ticked off: untick it
     const ticked = listItems.find((li) => li.item_id === itemId && li.is_checked)
-    if (ticked) { handleToggle(ticked.id, true); setNotice(`${name} er tilbake på lista`); return }
+    if (ticked) {
+      send({ kind: 'add', clientId: newId(), itemId, quantity: typedQty === '1' ? ticked.quantity : typedQty })
+      setNotice(`${name} er tilbake på lista`)
+      return
+    }
 
     // Show the line now, store it in the background (or queue it if there is no signal)
     const clientId = newId()
-    optimisticAdd(draftLine(clientId, itemId, typedQty), true)
     send({ kind: 'add', clientId, itemId, quantity: typedQty })
   }
 
-  function draftLine(clientId: string, itemId: string, quantity = '1'): ListItem {
-    return {
-      id: clientId, list_id: list.id, item_id: itemId, quantity, is_checked: false,
-      checked_at: null, sort_override: null, created_at: new Date().toISOString(),
-    }
-  }
-
-  // ── Sending writes, with an offline queue ─────────────────────────────────────
-  function runOp(op: OutboxOp): Promise<unknown> {
-    switch (op.kind) {
-      case 'add': return addItemToList(list.id, op.itemId, op.quantity, op.clientId)
-      case 'create': return createItemAndAddToList(list.id, op.name, op.sectionId, op.itemId, op.clientId, op.quantity, op.confirmed)
-      case 'toggle': return toggleListItem(op.listItemId, op.checked, op.record ?? true)
-      case 'qty': return updateListItemQuantity(op.listItemId, op.quantity)
-      case 'remove': return removeListItem(op.listItemId)
-    }
-  }
-
-  /** The server answered an op (now or after the queue drained). */
-  function opAnswered(op: OutboxOp, result: any) {
-    if (op.kind === 'add' || op.kind === 'create') {
-      if (result && result.listItem) confirmAdd(op.clientId, result.listItem)
-      else { rollbackAdd(op.clientId); setNotice(result?.error || 'Kunne ikkje legge til vare') }
-    }
-  }
-
-  const outbox = useOutbox(list.id, runOp, opAnswered, () => { refetch(); notifyChanged() })
-
-  /** Send now; with no signal, keep it on the phone and send later. */
   function send(op: OutboxOp) {
-    // Anything already waiting must go first, to keep the order
-    if (outbox.waiting > 0) { outbox.enqueue(op); return }
-    runOp(op)
-      .then((result) => { opAnswered(op, result); notifyChanged() })
-      .catch((e) => {
-        if (isNetworkError(e)) {
-          outbox.enqueue(op)
-          setNotice('Ingen nett – blir lagra når du er på nett att')
-        } else if (op.kind === 'add' || op.kind === 'create') {
-          rollbackAdd(op.clientId)
-          setNotice('Kunne ikkje lagre')
-        }
-      })
+    if (op.kind === 'add') op = { ...op, name: itemsMap[op.itemId]?.name, sectionId: itemsMap[op.itemId]?.section_id }
+    outbox.enqueue(op)
   }
 
-  // Ops left in the queue from an earlier visit: show them again until they are sent
-  useEffect(() => {
-    for (const op of outbox.queued()) {
-      if (op.kind === 'create') {
-        const section = sections.find((s) => s.id === op.sectionId)
-        setItemsMap((prev) => prev[op.itemId] ? prev : ({
-          ...prev,
-          [op.itemId]: { id: op.itemId, name: op.name, section_id: op.sectionId, times_purchased: 0, is_confirmed: false, check_count: 0, check_order_sum: 0, sections: section },
-        }))
-        optimisticAdd(draftLine(op.clientId, op.itemId, op.quantity), true)
-      } else if (op.kind === 'add') optimisticAdd(draftLine(op.clientId, op.itemId, op.quantity), true)
-      else if (op.kind === 'toggle') optimisticToggle(op.listItemId, op.checked)
-      else if (op.kind === 'qty') optimisticUpdateQuantity(op.listItemId, op.quantity)
-      else if (op.kind === 'remove') optimisticRemove(op.listItemId)
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- once, after the queue is loaded
-  }, [])
+  function queueBatch(lines: { itemId: string; quantity: string; create?: { name: string; sectionId: string } }[]) {
+    if (!lines.length) return
+    const quantities = new globalThis.Map(listItems.map(l => [l.item_id, l.is_checked ? null : l.quantity]))
+    const batch: BatchLine[] = lines.map(l => {
+      const previous = quantities.get(l.itemId)
+      const optimisticQuantity = previous ? addQty(previous, l.quantity) ?? previous : l.quantity
+      quantities.set(l.itemId, optimisticQuantity)
+      return { clientId: newId(), itemId: l.itemId, quantity: l.quantity, optimisticQuantity,
+        name: l.create?.name ?? itemsMap[l.itemId]?.name,
+        sectionId: l.create?.sectionId ?? itemsMap[l.itemId]?.section_id,
+        ...(l.create ? { create: true, confirmed: true } : {}),
+      }
+    })
+    send({ kind: 'batch', lines: batch })
+  }
 
   function handleCreateAndAdd(sectionId: string) {
     const name = newItemName.trim()
@@ -453,7 +413,6 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores, i
       ...prev,
       [itemId]: { id: itemId, name, section_id: sectionId, times_purchased: 0, is_confirmed: false, check_count: 0, check_order_sum: 0, sections: section },
     }))
-    optimisticAdd(draftLine(clientId, itemId), true)
     send({ kind: 'create', clientId, itemId, name, sectionId })
   }
 
@@ -466,12 +425,11 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores, i
     }
     const meal = meals.find((m) => m.id === mealId)
     resetSearch()
-    const r: any = await addMealToList(mealId, list.id, people)
-    if (r?.error) { setNotice(r.error); return }
-    await refetch()
-    notifyChanged()
-    const scaled = r?.scaledFor ? ` (for ${r.scaledFor})` : ''
-    setNotice(`${meal?.icon ?? ''} ${meal?.name ?? 'Middag'}${scaled}: ${r?.summary ?? 'lagt til'}`)
+    if (!meal?.ingredients) { setNotice('Opne lista på nett ein gong for å lagre middagen på telefonen'); return }
+    const target = people ?? householdSize
+    const base = meal.servings ?? (people ? householdSize : null)
+    const factor = target && base ? target / base : 1
+    queueBatch(meal.ingredients.map((ingredient: any) => ({ itemId: ingredient.item_id, quantity: scaleQty(ingredient.quantity, factor) })))
   }
 
   /** New dinner named after what was typed; fill it in, then it is added back here. */
@@ -486,13 +444,7 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores, i
   /** "Same as last time": copy the previous list's lines into this one. */
   async function handleCopyPrevious() {
     setShowMenu(false)
-    setBusyCopy(true)
-    const r: any = await copyFromPreviousList(list.id)
-    setBusyCopy(false)
-    if (r?.error) { setNotice(r.error); return }
-    await refetch()
-    notifyChanged()
-    setNotice(`Frå «${r.from}»: ${r.summary}`)
+    if (!busyCopy) send({ kind: 'copy' })
   }
 
   // Most-bought items not already waiting on the list: one-tap chips
@@ -515,23 +467,21 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores, i
   }
 
   function handleToggle(listItemId: string, currentChecked: boolean) {
-    optimisticToggle(listItemId, !currentChecked)
     // Don't let ticks made far from any shop (at home) teach the route
     send({ kind: 'toggle', listItemId, checked: !currentChecked, record: geo.status !== 'away' })
   }
 
   function handleQuantityUpdate(listItemId: string, quantity: string) {
-    optimisticUpdateQuantity(listItemId, quantity)
     setEditingQuantityId(null)
     send({ kind: 'qty', listItemId, quantity })
   }
 
   function handleRemove(listItemId: string) {
-    optimisticRemove(listItemId)
     send({ kind: 'remove', listItemId })
   }
 
   async function handleStoreChange(storeId: string, auto = false) {
+    if (outbox.waiting) { setNotice('Vent til endringane er lagra før du byter butikk'); return }
     if (!auto) storeChosenByHand.current = true
     setShowStoreSelector(false)
     if (storeId === list.store_id) return
@@ -560,14 +510,13 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores, i
   }, [geo])
 
   async function handleUncheckAll() {
-    await uncheckAllItems(list.id)
-    await refetch()
-    notifyChanged()
+    send({ kind: 'uncheck' })
     setShowMenu(false)
   }
 
   async function handleSaveTemplate() {
     if (!templateName.trim()) return
+    if (outbox.waiting) { setNotice('Vent til endringane er lagra før du lagrar malen'); return }
     await saveAsTemplate(list.id, templateName.trim())
     setTemplateName('')
     setShowTemplateSave(false)
@@ -575,6 +524,7 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores, i
   }
 
   async function handleDeleteList() {
+    if (outbox.waiting) { setNotice('Vent til endringane er lagra før du slettar lista'); return }
     if (confirm('Slette denne lista?')) {
       await deleteList(list.id)
       router.push('/lister')
@@ -722,7 +672,7 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores, i
           {outbox.waiting > 0 && (
             <span
               className="flex items-center gap-1 text-[11px] font-medium text-[#B45309] bg-[#FEF3C7] rounded-full px-2 py-0.5"
-              title="Endringar som ventar på nett"
+              title="Endringar som ventar på lagring"
             >
               <CloudOff className="h-3 w-3" /> {outbox.waiting}
             </span>
@@ -742,6 +692,16 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores, i
           </div>
         )}
       </div>
+
+      {outbox.error && (
+        <div role="alert" className="mx-4 my-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm">
+          <p>{outbox.error}</p>
+          <div className="mt-2 flex gap-3">
+            <button type="button" onClick={outbox.retry} className="min-h-11 underline">Prøv igjen</button>
+            <button type="button" onClick={() => { if (confirm('Forkaste venta endringar og hente lista på nytt?')) outbox.discard() }} className="min-h-11 underline">Forkast venta endringar</button>
+          </div>
+        </div>
+      )}
 
       {/* Store selector dropdown */}
       {showStoreSelector && (
@@ -1100,13 +1060,13 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores, i
             {/* Checked items */}
             {checkedItems.length > 0 && (
               <div className="mt-6">
-                <div className="flex items-center gap-2 mb-2">
+                <button type="button" onClick={() => setShowPicked(!showPicked)} aria-expanded={showPicked} className="flex items-center gap-2 mb-2 min-h-11">
                   <Check className="h-4 w-4 text-[#10B981]" />
                   <span className="text-sm font-medium text-[#64748B]">
-                    {t('list.done_section')} ({checkedItems.length})
+                    {t('list.done_section')} ({checkedItems.length}) {showPicked ? '▾' : '▸'}
                   </span>
-                </div>
-                <div className="space-y-1">
+                </button>
+                <div className="space-y-1" hidden={!showPicked}>
                   {checkedItems.map((li) => {
                     const item = itemsMap[li.item_id]
                     if (!item) return null
@@ -1207,13 +1167,13 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores, i
             {/* Checked items */}
             {checkedItems.length > 0 && (
               <div className="mt-6">
-                <div className="flex items-center gap-2 mb-2">
+                <button type="button" onClick={() => setShowPicked(!showPicked)} aria-expanded={showPicked} className="flex items-center gap-2 mb-2 min-h-11">
                   <Check className="h-4 w-4 text-[#10B981]" />
                   <span className="text-sm font-medium text-[#64748B]">
-                    {t('list.done_section')} ({checkedItems.length})
+                    {t('list.done_section')} ({checkedItems.length}) {showPicked ? '▾' : '▸'}
                   </span>
-                </div>
-                <div className="space-y-1">
+                </button>
+                <div className="space-y-1" hidden={!showPicked}>
                   {checkedItems.map((li) => {
                     const item = itemsMap[li.item_id]
                     if (!item) return null

@@ -28,7 +28,7 @@ async function latestListId(householdId: string): Promise<string | null> {
 }
 
 export default async function WelcomePage() {
-  const householdId = readSession()
+  const householdId = await readSession()
   if (householdId) {
     // Open straight on the list in use; the overview stays one tap away
     const id = await latestListId(householdId)

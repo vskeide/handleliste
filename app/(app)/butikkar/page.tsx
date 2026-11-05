@@ -7,7 +7,7 @@ import { Badge } from '@/components/ui/badge'
 import { MapPin, ChevronRight } from 'lucide-react'
 
 export default async function StoresPage() {
-  const householdId = requireSession()
+  const householdId = await requireSession()
 
   const supabase = createServiceRoleClient()
   const { data: householdStores } = await supabase

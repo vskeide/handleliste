@@ -13,7 +13,8 @@ const SIZES: Record<string, { size: number; maskable: boolean }> = {
 // Pre-rendering at build time fails on Windows with next/og ("Invalid URL").
 export const runtime = 'edge'
 
-export function GET(_req: Request, { params }: { params: { file: string } }) {
+export async function GET(_req: Request, { params: pendingParams }: { params: Promise<{ file: string }> }) {
+  const params = await pendingParams
   const spec = SIZES[params.file]
   if (!spec) return new Response('Not found', { status: 404 })
   const { size, maskable } = spec

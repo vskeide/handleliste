@@ -4,15 +4,17 @@ import { createServiceRoleClient } from '@/lib/supabase/server'
 import { getWalkOrder } from '@/lib/actions/stores'
 import { ListDetailClient } from './list-detail-client'
 import { portions, describeHousehold } from '@/lib/portions'
+import { getMeals } from '@/lib/actions/meals'
 
-export default async function ListDetailPage({ params }: { params: { id: string } }) {
-  const householdId = requireSession()
+export default async function ListDetailPage({ params: pendingParams }: { params: Promise<{ id: string }> }) {
+  const params = await pendingParams
+  const householdId = await requireSession()
   const supabase = createServiceRoleClient()
 
   // Everything the screen needs, fetched in parallel in one server round-trip:
   // the list, sections, shops, the household's items (for names + local search)
   // and the list lines themselves, so the list paints immediately.
-  const [listRes, sectionsRes, storesRes, itemsRes, lineRes, hhRes] = await Promise.all([
+  const [listRes, sectionsRes, storesRes, itemsRes, lineRes, hhRes, initialMeals] = await Promise.all([
     supabase
       .from('shopping_lists')
       .select('*, stores(id, name, chain)')
@@ -27,6 +29,7 @@ export default async function ListDetailPage({ params }: { params: { id: string 
       .eq('household_id', householdId),
     supabase.from('list_items').select('*').eq('list_id', params.id).order('created_at'),
     supabase.from('households').select('*').eq('id', householdId).maybeSingle(),
+    getMeals(),
   ])
 
   const list = listRes.data
@@ -59,6 +62,8 @@ export default async function ListDetailPage({ params }: { params: { id: string 
 
   return (
     <ListDetailClient
+      key={list.id}
+      initialMeals={initialMeals}
       list={list}
       sections={sections}
       walkOrder={walkOrder}

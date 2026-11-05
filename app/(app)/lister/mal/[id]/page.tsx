@@ -3,8 +3,9 @@ import { requireSession } from '@/lib/session'
 import { createServiceRoleClient } from '@/lib/supabase/server'
 import { TemplateEditor } from './template-editor'
 
-export default async function TemplatePage({ params }: { params: { id: string } }) {
-  const householdId = requireSession()
+export default async function TemplatePage({ params: pendingParams }: { params: Promise<{ id: string }> }) {
+  const params = await pendingParams
+  const householdId = await requireSession()
   const supabase = createServiceRoleClient()
 
   const [tmplRes, linesRes, itemsRes, sectionsRes, storesRes] = await Promise.all([

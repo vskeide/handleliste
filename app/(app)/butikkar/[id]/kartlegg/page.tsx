@@ -4,8 +4,9 @@ import { createServiceRoleClient } from '@/lib/supabase/server'
 import { getWalkOrder, canEditSharedMap } from '@/lib/actions/stores'
 import { SectionSorterClient } from './section-sorter-client'
 
-export default async function MappingPage({ params }: { params: { id: string } }) {
-  requireSession()
+export default async function MappingPage({ params: pendingParams }: { params: Promise<{ id: string }> }) {
+  const params = await pendingParams
+  await requireSession()
 
   const supabase = createServiceRoleClient()
 

@@ -5,7 +5,7 @@ import { t } from '@/lib/i18n'
 import { SettingsClient } from './settings-client'
 
 export default async function SettingsPage() {
-  const householdId = requireSession()
+  const householdId = await requireSession()
 
   const supabase = createServiceRoleClient()
   const { data: household } = await supabase

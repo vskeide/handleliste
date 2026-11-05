@@ -113,7 +113,7 @@ export default function MealDetailPage() {
       }
       const quantity = parsed.quantity !== '1' ? parsed.quantity : hit?.catalog?.qty ?? '1'
       const result = await addMealItem(id, itemId!, quantity)
-      if ('error' in result) { setSearchError(result.error); return }
+      if ('error' in result && result.error) { setSearchError(result.error); return }
       setSearchQuery('')
       setHighlightIndex(0)
       await loadMeal()

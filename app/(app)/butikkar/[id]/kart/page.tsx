@@ -4,8 +4,9 @@ import { createServiceRoleClient } from '@/lib/supabase/server'
 import { getStoreMap, getWalkOrder, canEditSharedMap } from '@/lib/actions/stores'
 import { GridMapClient } from './grid-map-client'
 
-export default async function StoreMapPage({ params }: { params: { id: string } }) {
-  requireSession()
+export default async function StoreMapPage({ params: pendingParams }: { params: Promise<{ id: string }> }) {
+  const params = await pendingParams
+  await requireSession()
 
   const supabase = createServiceRoleClient()
 

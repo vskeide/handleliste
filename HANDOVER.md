@@ -4,6 +4,36 @@
 
 This checkpoint supersedes the original status below:
 
+- **Latest implementation:** Next.js **15.5.29**, React **19.3.1**, matching lint/types,
+  and supported icons. Cookies/route params now use async APIs; existing HMAC cookies
+  remain compatible. Removed unused Supabase Auth middleware/SSR wrapper and Zod.
+  PostCSS is pinned/overridden to 8.5.32; a clean `npm ci` reproduces it. Production
+  `npm audit --omit=dev` is clean; six moderate ESLint/minimatch development-tool
+  entries remain (no critical/high findings).
+- Picked items start collapsed in both list modes and expand with an accessible button.
+- All main-list add/create/tick/quantity/remove/reset/bulk/meal/copy writes now go
+  through one persisted serial queue (`lib/list-outbox.ts`, hook wrapper). Stable
+  operation IDs, remapped server IDs, pending-change overlays and cached row/product
+  metadata survive refresh/reload. Rejections remain visible with Retry/Discard.
+- **0006 is applied in Supabase**: unique list/product index, server-only receipt table,
+  service-role-only transactional `apply_list_operation`, and quantity merge helper.
+  It checks household ownership, serializes household writes, resolves product aliases,
+  merges batch quantities atomically, and counts ticks/routes only on real transitions.
+  One queued operation needs one DB RPC. Receipts are retained for reliable retries;
+  do not prune them without also defining an expiry rule for queued operations.
+- Verification: **24 unit/regression tests**, production build, TypeScript, clean install
+  and Nynorsk check pass. `tests/list-writes.sql` ran through the connector and passed
+  replay/ownership/canonical-product/atomic rollback checks; its fixtures were rolled
+  back (zero left). New table/functions block browser roles; security advisor has only
+  expected RLS-without-policy informational notices. Browser fixture checked collapse/
+  expand, refused-write feedback, and pending quantity after reload. Real two-phone
+  airplane-mode/upgrade smoke check is still needed before calling phone UX verified.
+- Scope: main-list writes use the new RPC. Older meal-detail → list and template/layout
+  actions still need the transactional follow-ups described in the audit. Logout cache
+  isolation, settings races, PIN/session hardening and quantity rounding remain open.
+- App changes remain local, pending push approval. DB additions are backward-compatible
+  with the current live app; the uniqueness index now protects it against duplicates.
+
 - **Read `docs/AUDIT-2026-11-05.md` before more features.** Audit found a supported
   Next.js upgrade and retry-safe offline/atomic writes are the main priorities. Do not
   treat Next 14.2.35 as currently patched: upstream fixes are on newer supported branches.

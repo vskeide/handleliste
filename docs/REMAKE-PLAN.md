@@ -5,6 +5,25 @@ live database. Goal: an app that is fast enough and simple enough that it actual
 Phase 1 users: Vebjørn and his wife (one household). Built so other households can be added
 later without a rebuild.
 
+## Current checkpoint — 2026-11-05
+
+Implemented locally, awaiting push: map zoom/pan, local meal search, collapsible picked
+items, Next.js 15.5.29 / React 19, and a serial offline queue with retry receipts and
+pending-change overlays. Migration 0006 is applied: list/product uniqueness plus
+server-only transactional list writes. Migrations 0004/0005 and the schema capture
+are complete. See HANDOVER.md for verification and limits; historical phase notes below
+describe the earlier sessions.
+
+The remaining practical order is:
+
+1. Deploy and check both phones, including airplane-mode edits, reload and reconnect.
+2. Finish transactional template/layout/older meal-to-list saves, logout cache isolation,
+   quantity-rounding and settings/PIN/session reliability items from the audit.
+3. Kassalapp shop lookup outside the existing Volda shops.
+4. Phase 4: a small Claude/ChatGPT connector with a revocable token and list/meal tools.
+5. Optional later: personal email logins and prices. Undo removal and a plain list note
+   remain optional suggestions, not required features.
+
 ## 1. What already exists
 
 | Area | Status | Where |
@@ -149,9 +168,9 @@ outside the existing Volda stores remains open.
 ### Phase 4 — AI connector
 - MCP endpoint with token auth; tested from the Claude app (voice) and ChatGPT.
 
-**Prerequisites from the 2026-11-05 audit:** upgrade to a supported patched Next.js
-branch and make queued writes/merges retry-safe before exposing more write clients.
-See `docs/AUDIT-2026-11-05.md` for the prioritized fixes and small feature shortlist.
+**Status:** supported framework upgrade and retry-safe main-list writes are implemented
+locally; deploy/phone checks and remaining older write paths come before adding clients.
+See `docs/AUDIT-2026-11-05.md` for remaining fixes and the small feature shortlist.
 
 ### Phase 5 — Opening up (later)
 - Personal logins (email link) on top of households; shared layouts across households;

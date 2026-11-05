@@ -9,7 +9,7 @@ import { CHAIN_COLORS } from '@/lib/constants'
 import { ListCard } from '@/components/list-card'
 
 export default async function ListsPage() {
-  const householdId = requireSession()
+  const householdId = await requireSession()
 
   const supabase = createServiceRoleClient()
   const { data: lists } = await supabase

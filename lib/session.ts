@@ -33,19 +33,19 @@ export function decodeSession(value: string | undefined | null): string | null {
 }
 
 /** The logged-in household id, or null. Use this everywhere instead of reading the cookie. */
-export function readSession(): string | null {
-  return decodeSession(cookies().get(SESSION_COOKIE_NAME)?.value)
+export async function readSession(): Promise<string | null> {
+  return decodeSession((await cookies()).get(SESSION_COOKIE_NAME)?.value)
 }
 
 /** For server pages behind login: the household id, or redirect to the welcome page. */
-export function requireSession(): string {
-  const id = readSession()
+export async function requireSession(): Promise<string> {
+  const id = await readSession()
   if (!id) redirect('/')
   return id
 }
 
-export function writeSession(householdId: string) {
-  cookies().set(SESSION_COOKIE_NAME, encodeSession(householdId), {
+export async function writeSession(householdId: string) {
+  (await cookies()).set(SESSION_COOKIE_NAME, encodeSession(householdId), {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
     sameSite: 'lax',
@@ -54,6 +54,6 @@ export function writeSession(householdId: string) {
   })
 }
 
-export function clearSession() {
-  cookies().set(SESSION_COOKIE_NAME, '', { maxAge: 0, path: '/' })
+export async function clearSession() {
+  (await cookies()).set(SESSION_COOKIE_NAME, '', { maxAge: 0, path: '/' })
 }

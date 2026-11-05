@@ -72,7 +72,7 @@ export async function createHousehold(name: string, pin: string) {
   // Pre-seed 215 items for this household
   await seedHouseholdItems(supabase, household.id)
 
-  writeSession(household.id)
+  await writeSession(household.id)
 
   return { household: publicHousehold(household) }
 }
@@ -117,22 +117,22 @@ export async function joinHousehold(code: string, pin: string) {
     await supabase.from('households').update({ failed_pin_attempts: 0, pin_locked_until: null }).eq('id', household.id)
   }
 
-  writeSession(household.id)
+  await writeSession(household.id)
 
   return { household: publicHousehold(household) }
 }
 
 export async function logout() {
-  clearSession()
+  await clearSession()
 }
 
 export async function getSession(): Promise<string | null> {
-  return readSession()
+  return await readSession()
 }
 
 /** Set household size as adults (13+) and children. Needs migration 0004 for the split. */
 export async function setHouseholdSize(adults: number, children: number) {
-  const householdId = readSession()
+  const householdId = await readSession()
   if (!householdId) return { error: 'Ikkje innlogga' }
   if (![adults, children].every((n) => Number.isInteger(n) && n >= 0 && n <= 20) || adults + children < 1) {
     return { error: 'Ugyldig tal' }

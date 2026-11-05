@@ -21,11 +21,11 @@ export async function getMeals() {
   const supabase = createServiceRoleClient()
   const { data } = await supabase
     .from('meals')
-    .select('*, meal_items(count)')
+    .select('*, meal_items(item_id, quantity)')
     .eq('household_id', householdId)
     .order('name')
 
-  return data || []
+  return (data || []).map(meal => ({ ...meal, ingredients: meal.meal_items, meal_items: [{ count: meal.meal_items.length }] }))
 }
 
 export async function getMeal(mealId: string) {
