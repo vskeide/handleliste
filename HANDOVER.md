@@ -1,5 +1,31 @@
 # Handover: Handleliste remake (2026-11-05)
 
+## Codex follow-up (2026-11-05)
+
+This checkpoint supersedes the original status below:
+
+- Supabase connector is now connected. Project `txppeyposryvacjnclen` is healthy in
+  **eu-north-1 (Stockholm)**, confirmed by the project API.
+- Applied the existing SQL from **0004 and 0005** through the connector. Verified the
+  adults/children columns and both route tables. Route tables have RLS enabled, no
+  anon/authenticated CRUD privileges, and service-role access. Security advisors report
+  only the expected informational notices for RLS without policies (server-only access).
+  Adults and children remain unset; the household must choose the values in settings.
+- Map editor: local changes add 100–400% zoom, fit/reset, a scrollable viewport, an
+  explicit pan toggle in edit mode, section names on phones, and larger delete controls.
+  Switching modes/zoom cancels active gestures. Save errors keep the editor open.
+- Meal detail: local changes load household items once and use `searchAll` with the
+  catalogue and aliases. Results show categories; typed quantities are preserved,
+  new items get a guessed category, and failures are shown instead of clearing the input.
+  `addMealItem` now returns an insert failure to the UI.
+- Verification: TypeScript and production build passed; browser checks against a temporary 390px-wide,
+  24×28 map fixture passed zoom, pan, fit/reset, cell selection, placement and keyboard
+  removal. The fixture was removed. New UI text passed Nynorsk dictionary checking.
+  No real map was saved and logged-in meal changes still need a phone check.
+- These UI changes are local, pending explicit approval to push/deploy.
+- Remaining: Kassalapp lookup outside Volda, baseline schema dump, phase 4 connector,
+  and phase 5. Do not treat the original migration/access blockers below as current.
+
 From a Claude Code session to whoever picks this up next (Codex). Read this first, then
 [docs/REMAKE-PLAN.md](docs/REMAKE-PLAN.md) for the full plan and per-phase status.
 

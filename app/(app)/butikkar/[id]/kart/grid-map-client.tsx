@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef, useCallback } from 'react'
+import { useState, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { t } from '@/lib/i18n'
 import { saveStoreMap } from '@/lib/actions/stores'
@@ -28,6 +28,11 @@ type DragMode = 'move' | 'resize-right' | 'resize-bottom' | null
 export function GridMapClient({ storeId, storeName, sections, storeMap, walkOrder, canEdit }: Props) {
   const router = useRouter()
   const [mode, setMode] = useState<'view' | 'edit'>('view')
+  const [zoom, setZoom] = useState(1)
+  const [panning, setPanning] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
+  const viewportRef = useRef<HTMLDivElement>(null)
+  const editing = mode === 'edit' && !panning
   const [blocks, setBlocks] = useState<StoreMapBlock[]>(storeMap?.blocks || [])
   const [gridCols] = useState(storeMap?.grid_cols || DEFAULT_GRID_COLS)
   const [gridRows] = useState(storeMap?.grid_rows || DEFAULT_GRID_ROWS)
@@ -78,7 +83,7 @@ export function GridMapClient({ storeId, storeName, sections, storeMap, walkOrde
   }
 
   function handleCellPointerDown(col: number, row: number) {
-    if (mode !== 'edit') return
+    if (!editing) return
 
     if (placingEntrance) {
       setEntrance({ col, row })
@@ -150,7 +155,7 @@ export function GridMapClient({ storeId, storeName, sections, storeMap, walkOrde
 
   // Determine drag mode based on pointer position within tile
   function onTilePointerDown(index: number, e: React.PointerEvent) {
-    if (mode !== 'edit' || !gridRef.current || placingEntrance || placingCheckout) return
+    if (!editing || !gridRef.current || placingEntrance || placingCheckout) return
     e.preventDefault()
     e.stopPropagation()
 
@@ -195,7 +200,7 @@ export function GridMapClient({ storeId, storeName, sections, storeMap, walkOrde
     }
   }
 
-  const handlePointerMove = useCallback((e: React.PointerEvent) => {
+  function handlePointerMove(e: React.PointerEvent) {
     if (draggingBlock === null || !gridRef.current || !dragMode) return
 
     const rect = gridRef.current.getBoundingClientRect()
@@ -238,7 +243,7 @@ export function GridMapClient({ storeId, storeName, sections, storeMap, walkOrde
         })
       }
     }
-  }, [draggingBlock, dragMode, dragOffset, blocks, gridCols, gridRows])
+  }
 
   function handlePointerUp() {
     if (selectingFrom) {
@@ -249,17 +254,46 @@ export function GridMapClient({ storeId, storeName, sections, storeMap, walkOrde
     resizeStartRef.current = null
   }
 
+  function cancelGesture() {
+    setSelectingFrom(null)
+    setCellSelection(null)
+    setDraggingBlock(null)
+    setDragMode(null)
+    resizeStartRef.current = null
+  }
+
+  function changeZoom(next: number) {
+    const viewport = viewportRef.current
+    if (!viewport) return
+    cancelGesture()
+    const scale = next / zoom
+    const left = (viewport.scrollLeft + viewport.clientWidth / 2) * scale - viewport.clientWidth / 2
+    const top = (viewport.scrollTop + viewport.clientHeight / 2) * scale - viewport.clientHeight / 2
+    setZoom(next)
+    requestAnimationFrame(() => {
+      viewport.scrollLeft = next === 1 ? 0 : left
+      viewport.scrollTop = next === 1 ? 0 : top
+    })
+  }
+
   async function handleSave() {
     setSaving(true)
-    await saveStoreMap(storeId, {
-      grid_cols: gridCols,
-      grid_rows: gridRows,
-      entrance_position: entrance,
-      checkout_position: checkout,
-      blocks,
-    })
-    setSaving(false)
-    setMode('view')
+    setSaveError(null)
+    try {
+      const result = await saveStoreMap(storeId, {
+        grid_cols: gridCols,
+        grid_rows: gridRows,
+        entrance_position: entrance,
+        checkout_position: checkout,
+        blocks,
+      })
+      if (result.error) { setSaveError(result.error); return }
+      setMode('view')
+    } catch {
+      setSaveError('Kunne ikkje lagre kartet. Prøv igjen.')
+    } finally {
+      setSaving(false)
+    }
   }
 
   function clearMap() {
@@ -267,9 +301,6 @@ export function GridMapClient({ storeId, storeName, sections, storeMap, walkOrde
     setBlocks([])
     setSelectedSection(null)
   }
-
-  // Determine which sections are already placed
-  const placedSectionIds = new Set(blocks.map((b) => b.section_id))
 
   // Compute duplicate labels: if a section appears multiple times, label them "Name 1", "Name 2"
   const sectionBlockCounts: Record<string, number> = {}
@@ -299,7 +330,7 @@ export function GridMapClient({ storeId, storeName, sections, storeMap, walkOrde
         {canEdit && (
           <div className="flex rounded-lg border overflow-hidden">
             <button
-              onClick={() => setMode('view')}
+              onClick={() => { cancelGesture(); setMode('view') }}
               className={`px-3 py-1.5 text-xs font-medium ${
                 mode === 'view' ? 'bg-primary text-white' : 'bg-white text-[#64748B]'
               }`}
@@ -308,7 +339,7 @@ export function GridMapClient({ storeId, storeName, sections, storeMap, walkOrde
               {t('map.view')}
             </button>
             <button
-              onClick={() => setMode('edit')}
+              onClick={() => { cancelGesture(); setPanning(false); setMode('edit') }}
               className={`px-3 py-1.5 text-xs font-medium ${
                 mode === 'edit' ? 'bg-primary text-white' : 'bg-white text-[#64748B]'
               }`}
@@ -353,7 +384,6 @@ export function GridMapClient({ storeId, storeName, sections, storeMap, walkOrde
           {/* Section palette */}
           <div className="flex flex-wrap gap-1.5 p-2 bg-white rounded-lg border">
             {sections.map((section) => {
-              const placed = placedSectionIds.has(section.id)
               return (
                 <button
                   key={section.id}
@@ -377,7 +407,7 @@ export function GridMapClient({ storeId, storeName, sections, storeMap, walkOrde
                   }}
                 >
                   <span>{section.icon}</span>
-                  <span className="hidden sm:inline">{section.name_nn}</span>
+                  <span>{section.name_nn}</span>
                 </button>
               )
             })}
@@ -389,16 +419,40 @@ export function GridMapClient({ storeId, storeName, sections, storeMap, walkOrde
         <p className="text-xs text-[#94A3B8] mb-3 text-center">{t('map.no_permission')}</p>
       )}
 
-      {/* Grid map */}
+      <div className="flex flex-wrap items-center gap-2 mb-2">
+        <button type="button" onClick={() => changeZoom(Math.max(1, zoom - 0.5))} disabled={zoom === 1}
+          aria-label="Zoom ut" className="h-11 w-11 rounded-lg border bg-white text-xl disabled:opacity-30">−</button>
+        <span className="text-xs tabular-nums min-w-[3rem] text-center" aria-live="polite">{zoom * 100}%</span>
+        <button type="button" onClick={() => changeZoom(Math.min(4, zoom + 0.5))} disabled={zoom === 4}
+          aria-label="Zoom inn" className="h-11 w-11 rounded-lg border bg-white text-xl disabled:opacity-30">+</button>
+        <button type="button" onClick={() => changeZoom(1)} className="min-h-11 px-3 rounded-lg border bg-white text-xs">Vis heile</button>
+        {mode === 'edit' && (
+          <button type="button" aria-pressed={panning} onClick={() => { cancelGesture(); setPanning(!panning) }}
+            className={`min-h-11 px-3 rounded-lg border text-xs ${panning ? 'bg-primary text-white' : 'bg-white'}`}>
+            Flytt kartet
+          </button>
+        )}
+      </div>
+      {mode === 'edit' && (
+        <p className="text-xs text-[#64748B] mb-2">
+          {panning ? 'Dra for å flytte kartet. Slå av «Flytt kartet» for å redigere.' : 'Zoom inn for å redigere små felt. Vel «Flytt kartet» for å sjå andre delar.'}
+        </p>
+      )}
+
+      {/* Native scrolling is available in view/pan mode; edit gestures stay on the grid. */}
+      <div ref={viewportRef} className="overflow-auto rounded-lg border max-h-[65dvh]" tabIndex={0} role="region" aria-label="Butikkart">
       <div
         ref={gridRef}
-        className="relative bg-[#F1F5F9] rounded-lg border overflow-hidden touch-none"
+        className="relative bg-[#F1F5F9] overflow-hidden"
         style={{
+          width: `${zoom * 100}%`,
           aspectRatio: `${gridCols}/${gridRows}`,
+          touchAction: editing ? 'none' : 'pan-x pan-y pinch-zoom',
         }}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
         onPointerLeave={handlePointerUp}
+        onPointerCancel={cancelGesture}
       >
         {/* Grid lines */}
         <svg className="absolute inset-0 w-full h-full pointer-events-none" style={{ zIndex: 1 }}>
@@ -428,7 +482,7 @@ export function GridMapClient({ storeId, storeName, sections, storeMap, walkOrde
 
         {/* Cell interaction layer: one element that works out the cell from the pointer
             position, instead of one element per cell (cheap at any grid size) */}
-        {mode === 'edit' && (
+        {editing && (
           <div
             className="absolute inset-0 cursor-crosshair"
             style={{ zIndex: 2 }}
@@ -446,7 +500,7 @@ export function GridMapClient({ storeId, storeName, sections, storeMap, walkOrde
         )}
 
         {/* Selection rectangle overlay */}
-        {mode === 'edit' && cellSelection && (
+        {editing && cellSelection && (
           <div
             className="absolute rounded border-2 border-dashed border-primary bg-primary/10 pointer-events-none"
             style={{
@@ -476,7 +530,7 @@ export function GridMapClient({ storeId, storeName, sections, storeMap, walkOrde
             <div
               key={`block-${index}`}
               className={`absolute flex flex-col items-center justify-center rounded-md shadow-sm select-none ${
-                mode === 'edit' ? 'cursor-grab active:cursor-grabbing' : ''
+                editing ? 'cursor-grab active:cursor-grabbing' : ''
               }`}
               style={{
                 left: `${(block.col / gridCols) * 100}%`,
@@ -500,10 +554,12 @@ export function GridMapClient({ storeId, storeName, sections, storeMap, walkOrde
               )}
 
               {/* Remove button - only in edit mode, top-right corner */}
-              {mode === 'edit' && (
+              {editing && (
                 <button
-                  onPointerDown={(e) => removeBlock(index, e)}
-                  className="absolute -top-1.5 -right-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-red-500 text-white text-[11px] font-bold shadow-md hover:bg-red-600"
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onClick={(e) => removeBlock(index, e)}
+                  aria-label={`Fjern ${section.name_nn}`}
+                  className="absolute -top-1.5 -right-1.5 flex h-7 w-7 items-center justify-center rounded-full bg-red-500 text-white text-sm font-bold shadow-md hover:bg-red-600"
                   style={{ zIndex: 25 }}
                 >
                   ×
@@ -529,7 +585,7 @@ export function GridMapClient({ storeId, storeName, sections, storeMap, walkOrde
               )}
 
               {/* Edge drag hints in edit mode */}
-              {mode === 'edit' && (
+              {editing && (
                 <>
                   {/* Right edge hint */}
                   <div
@@ -575,6 +631,7 @@ export function GridMapClient({ storeId, storeName, sections, storeMap, walkOrde
           <span className="text-lg drop-shadow-md">💳</span>
         </div>
       </div>
+      </div>
 
       {/* Short legend */}
       <div className="flex items-center justify-between mt-3 text-xs text-[#94A3B8]">
@@ -586,6 +643,7 @@ export function GridMapClient({ storeId, storeName, sections, storeMap, walkOrde
       {mode === 'edit' && (
         <div className="fixed bottom-20 left-0 right-0 px-4">
           <div className="mx-auto max-w-lg">
+            {saveError && <p role="alert" className="mb-2 rounded-lg bg-white p-2 text-sm text-red-600">{saveError}</p>}
             <Button onClick={handleSave} className="w-full h-12" disabled={saving}>
               {saving ? 'Lagrar...' : t('map.save')}
             </Button>

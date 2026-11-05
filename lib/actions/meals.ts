@@ -103,11 +103,12 @@ export async function addMealItem(mealId: string, itemId: string, quantity?: str
 
   if (existing) return { error: 'Vara er allereie i måltidet' }
 
-  await supabase.from('meal_items').insert({
+  const { error } = await supabase.from('meal_items').insert({
     meal_id: mealId,
     item_id: itemId,
     quantity: quantity || '1',
   })
+  if (error) return { error: 'Kunne ikkje leggje til ingrediensen' }
 
   revalidatePath('/middagar')
   return { success: true }

@@ -1,16 +1,24 @@
 'use client'
 
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useParams, useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { getMeal, addMealItem, removeMealItem, updateMealItemQuantity, setMealServings, addRecipeTextToMeal, addMealToList } from '@/lib/actions/meals'
 import { QuantityPickerSheet, formatQuantityDisplay } from '@/components/quantity-picker-sheet'
-import { searchItems, createItem } from '@/lib/actions/items'
+import { getHouseholdItems, createItem } from '@/lib/actions/items'
+import { searchAll, guessSection, displayName, norm, type KnownItem } from '@/lib/match'
+import { parseEntry } from '@/lib/parse-list'
+import type { CatalogProduct } from '@/lib/catalog-data'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { ArrowLeft, Plus, Search, X, ClipboardPaste } from 'lucide-react'
 import type { Section } from '@/lib/types'
+
+interface IngredientHit extends KnownItem {
+  sections?: Section
+  catalog?: CatalogProduct
+}
 
 export default function MealDetailPage() {
   const { id } = useParams<{ id: string }>()
@@ -22,11 +30,12 @@ export default function MealDetailPage() {
   const [loading, setLoading] = useState(true)
   const [showSearch, setShowSearch] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
-  const [searchResults, setSearchResults] = useState<any[]>([])
+  const [householdItems, setHouseholdItems] = useState<IngredientHit[]>([])
+  const [searchLoading, setSearchLoading] = useState(true)
+  const [searchError, setSearchError] = useState<string | null>(null)
+  const [addingItem, setAddingItem] = useState(false)
   const [highlightIndex, setHighlightIndex] = useState(0)
   const [sections, setSections] = useState<Section[]>([])
-  const [showSectionPicker, setShowSectionPicker] = useState(false)
-  const [newItemName, setNewItemName] = useState('')
   const [editingMealItemId, setEditingMealItemId] = useState<string | null>(null)
   const [servingsError, setServingsError] = useState<string | null>(null)
   const [showPaste, setShowPaste] = useState(false)
@@ -35,56 +44,85 @@ export default function MealDetailPage() {
   const [pasteNote, setPasteNote] = useState<string | null>(null)
   const searchRef = useRef<HTMLInputElement>(null)
 
-  async function loadMeal() {
+  const loadMeal = useCallback(async () => {
     const data = await getMeal(id)
     setMeal(data)
     setLoading(false)
-  }
+  }, [id])
 
-  useEffect(() => { loadMeal() }, [id])
+  useEffect(() => { void loadMeal() }, [loadMeal])
 
-  // Fetch sections for the create-new-item flow
+  // Load once; every keystroke then searches the household and catalogue locally.
   useEffect(() => {
-    async function fetchSections() {
-      const res = await fetch('/api/sections')
-      if (res.ok) {
-        const data = await res.json()
+    let active = true
+    async function loadSearch() {
+      try {
+        const [items, res] = await Promise.all([getHouseholdItems(), fetch('/api/sections')])
+        if (!res.ok) throw new Error('Sections unavailable')
+        const data: Section[] = await res.json()
+        if (!active) return
+        setHouseholdItems(items)
         setSections(data)
+      } catch {
+        if (active) setSearchError('Kunne ikkje laste varesøket. Last sida på nytt for å prøve igjen.')
+      } finally {
+        if (active) setSearchLoading(false)
       }
     }
-    fetchSections()
+    void loadSearch()
+    return () => { active = false }
   }, [])
 
-  const handleSearch = useCallback(async (query: string) => {
-    setSearchQuery(query)
-    setShowSectionPicker(false)
-    if (query.length < 1) { setSearchResults([]); return }
-    const results = await searchItems(query)
-    const existingIds = new Set((meal?.meal_items || []).map((mi: any) => mi.item_id))
-    setSearchResults(results.filter((r: any) => !existingIds.has(r.id)))
-    setHighlightIndex(0)
-  }, [meal])
+  const searchResults = useMemo<IngredientHit[]>(() => {
+    const existingIds = new Set<string>((meal?.meal_items || []).map((mi: any) => mi.item_id))
+    const existingNames = new Set<string>((meal?.meal_items || []).map((mi: any) => norm(mi.items?.name || '')))
+    const term = parseEntry(searchQuery).name
+    return searchAll(householdItems, term, householdItems.length + 500)
+      .filter((hit) => hit.kind === 'item' ? !existingIds.has(hit.item.id) && !existingNames.has(norm(hit.item.name)) : !existingNames.has(norm(hit.product.name)))
+      .slice(0, 20)
+      .map((hit) => {
+        const name = hit.kind === 'item' ? hit.item.name : hit.product.name
+        const section = sections.find((s) => hit.kind === 'item' ? s.id === hit.item.section_id : s.name_nn === hit.product.section)
+        return hit.kind === 'item'
+          ? { ...hit.item, sections: section }
+          : { id: `cat:${name}`, name, section_id: section?.id ?? null, sections: section, catalog: hit.product }
+      })
+  }, [householdItems, searchQuery, sections, meal])
 
-  async function handleAddItem(itemId: string) {
-    await addMealItem(id, itemId)
-    setSearchQuery('')
-    setSearchResults([])
-    setShowSectionPicker(false)
-    await loadMeal()
-    setTimeout(() => searchRef.current?.focus(), 50)
+  function handleSearch(query: string) {
+    setSearchQuery(query)
+    setHighlightIndex(0)
   }
 
-  async function handleCreateAndAdd(sectionId: string) {
-    const result = await createItem(newItemName, sectionId)
-    if (result.item) {
-      await addMealItem(id, result.item.id)
+  async function handleAddItem(hit?: IngredientHit) {
+    if (addingItem || searchLoading || !sections.length) return
+    const parsed = parseEntry(searchQuery)
+    const name = hit?.name ?? displayName(parsed.name)
+    if (!name) return
+    setAddingItem(true)
+    setSearchError(null)
+    try {
+      let itemId = hit && !hit.catalog ? hit.id : householdItems.find((item) => norm(item.name) === norm(name))?.id
+      if (!itemId) {
+        const sectionName = hit?.catalog?.section ?? guessSection(name) ?? 'Tørrvarer'
+        const sectionId = hit?.section_id ?? sections.find((s) => s.name_nn === sectionName)?.id ?? sections[0].id
+        const result = await createItem(name, sectionId)
+        if (!result.item) { setSearchError(result.error || 'Kunne ikkje opprette vare'); return }
+        itemId = result.item.id
+        setHouseholdItems((prev) => [...prev, result.item])
+      }
+      const quantity = parsed.quantity !== '1' ? parsed.quantity : hit?.catalog?.qty ?? '1'
+      const result = await addMealItem(id, itemId!, quantity)
+      if ('error' in result) { setSearchError(result.error); return }
+      setSearchQuery('')
+      setHighlightIndex(0)
       await loadMeal()
+    } catch {
+      setSearchError('Kunne ikkje leggje til ingrediensen. Prøv igjen.')
+    } finally {
+      setAddingItem(false)
+      requestAnimationFrame(() => searchRef.current?.focus())
     }
-    setNewItemName('')
-    setShowSectionPicker(false)
-    setSearchQuery('')
-    setSearchResults([])
-    setTimeout(() => searchRef.current?.focus(), 50)
   }
 
   async function handleAddToList() {
@@ -214,39 +252,41 @@ export default function MealDetailPage() {
             <Input
               ref={searchRef}
               value={searchQuery}
+              disabled={searchLoading || addingItem || !sections.length}
               onChange={(e) => handleSearch(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === 'Enter') {
                   e.preventDefault()
                   if (searchResults.length > 0) {
-                    handleAddItem(searchResults[highlightIndex]?.id || searchResults[0].id)
+                    void handleAddItem(searchResults[highlightIndex] || searchResults[0])
                   } else if (searchQuery.trim().length > 0) {
-                    setNewItemName(searchQuery.trim())
-                    setShowSectionPicker(true)
+                    void handleAddItem()
                   }
                 } else if (e.key === 'ArrowDown') {
                   e.preventDefault()
-                  setHighlightIndex((i) => Math.min(i + 1, searchResults.length - 1))
+                  setHighlightIndex((i) => Math.max(0, Math.min(i + 1, searchResults.length - 1)))
                 } else if (e.key === 'ArrowUp') {
                   e.preventDefault()
                   setHighlightIndex((i) => Math.max(i - 1, 0))
                 }
               }}
-              placeholder="Søk etter ingrediensar..."
+              placeholder={searchLoading ? 'Lastar varer…' : 'Søk etter ingrediensar...'}
               className="border-0 shadow-none focus-visible:ring-0 h-8"
               autoFocus
             />
-            <button onClick={() => { setShowSearch(false); setSearchQuery(''); setSearchResults([]); setShowSectionPicker(false) }}>
+            <button onClick={() => { setShowSearch(false); setSearchQuery('') }}>
               <X className="h-4 w-4 text-[#94A3B8]" />
             </button>
           </div>
+          {searchError && <p role="alert" className="mt-2 text-xs text-red-600">{searchError}</p>}
 
           {searchResults.length > 0 && (
             <div className="mt-2 space-y-1 max-h-60 overflow-y-auto">
               {searchResults.map((item: any, index: number) => (
                 <button
                   key={item.id}
-                  onClick={() => handleAddItem(item.id)}
+                  onClick={() => handleAddItem(item)}
+                  disabled={addingItem || searchLoading}
                   onMouseEnter={() => setHighlightIndex(index)}
                   className={`flex items-center gap-2 w-full rounded-lg p-2 text-left transition-colors ${
                     index === highlightIndex ? 'bg-primary/10 ring-1 ring-primary/30' : 'hover:bg-[#F1F5F9]'
@@ -254,6 +294,7 @@ export default function MealDetailPage() {
                 >
                   <span className="text-sm">{item.sections?.icon}</span>
                   <span className="text-sm">{item.name}</span>
+                  <span className="text-xs text-[#64748B]">{item.sections?.name_nn}</span>
                   {index === highlightIndex && (
                     <span className="text-[10px] text-[#94A3B8] ml-auto">↵</span>
                   )}
@@ -263,37 +304,19 @@ export default function MealDetailPage() {
           )}
 
           {/* Create new item button */}
-          {searchQuery.length > 0 && (
+          {searchQuery.trim().length > 0 && !searchLoading && (
             <button
-              onClick={() => {
-                setNewItemName(searchQuery)
-                setShowSectionPicker(true)
-              }}
+              onClick={() => handleAddItem()}
+              disabled={addingItem || !sections.length}
               className="mt-2 flex items-center gap-2 w-full rounded-lg p-2 text-left hover:bg-[#F1F5F9] text-primary"
             >
               <Plus className="h-4 w-4" />
               <span className="text-sm font-medium">
-                Opprett &quot;{searchQuery}&quot;
+                Legg til &quot;{parseEntry(searchQuery).name}&quot;
               </span>
             </button>
           )}
 
-          {/* Section picker for new items */}
-          {showSectionPicker && (
-            <div className="mt-2 space-y-1 border-t pt-2">
-              <p className="text-xs text-[#64748B] mb-1">Vel kategori for ny vare:</p>
-              {sections.map((section) => (
-                <button
-                  key={section.id}
-                  onClick={() => handleCreateAndAdd(section.id)}
-                  className="flex items-center gap-2 w-full rounded-lg p-2 text-left hover:bg-[#F1F5F9]"
-                >
-                  <span>{section.icon}</span>
-                  <span className="text-sm">{section.name_nn}</span>
-                </button>
-              ))}
-            </div>
-          )}
         </div>
       )}
 

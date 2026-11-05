@@ -138,6 +138,12 @@ left for phase 4, where the assistant itself does it.
 - GPS shop detection with "save this shop" and Kassalapp shop lookup.
 - Per-shop route learning (items per household, sections shared); the two view modes.
 
+**Status 2026-11-05:** GPS and learned routes shipped in `060addb`; migrations 0004 and
+0005 have now been applied via the Supabase connector and verified. Project region is
+confirmed as eu-north-1. Follow-up UI work is local pending approval to push: map zoom
+and panning on phones, and local catalogue search on the meal detail page. Kassalapp
+lookup outside the existing Volda stores and the baseline schema dump remain open.
+
 ### Phase 4 — AI connector
 - MCP endpoint with token auth; tested from the Claude app (voice) and ChatGPT.
 
