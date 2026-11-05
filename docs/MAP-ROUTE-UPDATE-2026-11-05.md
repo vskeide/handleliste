@@ -42,3 +42,21 @@ Implemented locally, awaiting the user's next production-push approval.
   The fixture was removed. Real-phone two-finger/long-press/drop-bin testing remains
   necessary; browser automation does not establish physical touch ergonomics.
 - The connector changes in the shared working tree belong to the side chat.
+
+## Compact map editor
+
+- Save is in the header; no fixed save bar covers the map. The map viewport uses
+  the available screen height and a smaller surrounding margin.
+- Touch devices use the existing two-finger zoom/pan gestures. Zoom, reset and
+  one-finger navigation controls remain available for a primary mouse pointer.
+- Tap or drag across empty grid cells to select an area, then choose its section
+  in a modal. Cancel/Escape discards the selection. A second finger cancels the
+  pending geometry edit before zooming or panning.
+- Move/delete actions appear over the map only while a block is selected; the
+  empty selection toolbar and persistent section palette are removed.
+- An isolated mobile browser check covered layout, header save placement, hidden
+  touch controls, tap/cancel, drag selection/section choice, four resize handles,
+  delete/undo and pinch zoom without creating a block. Desktop zoom and browser
+  error checks passed. The disposable preview used no real shop map or writes.
+- TypeScript, the ten route/map unit tests and the changed Nynorsk UI text pass.
+  Physical phone ergonomics still need user testing.

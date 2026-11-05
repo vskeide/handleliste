@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import { t } from '@/lib/i18n'
 import { saveStoreMap } from '@/lib/actions/stores'
 import { Button } from '@/components/ui/button'
-import { ArrowLeft, Eye, Pencil, Trash2, Move, Undo2 } from 'lucide-react'
+import { ArrowLeft, Eye, Pencil, Trash2, Move, Undo2, X } from 'lucide-react'
 import { canPlaceBlock, clamp, resizeBlock, twoFingerFrame, zoomScroll, type Point, type ResizeEdge } from '@/lib/map-geometry'
 import type { Section, StoreMap, StoreMapBlock, WalkOrder } from '@/lib/types'
 
@@ -27,8 +27,8 @@ export function GridMapClient({ storeId, storeName, sections, storeMap, walkOrde
   const [blocks, setBlocks] = useState<StoreMapBlock[]>(storeMap?.blocks || [])
   const [entrance, setEntrance] = useState(storeMap?.entrance_position || { col: 0, row: gridRows - 1 })
   const [checkout, setCheckout] = useState(storeMap?.checkout_position || { col: gridCols - 1, row: gridRows - 1 })
-  const [selectedSection, setSelectedSection] = useState<string | null>(null)
   const [paletteOpen, setPaletteOpen] = useState(false)
+  const paletteRef = useRef<HTMLDialogElement>(null)
   const [navigating, setNavigating] = useState(false)
   const [selectedBlock, setSelectedBlock] = useState<number | null>(null)
   const [placing, setPlacing] = useState<'entrance' | 'checkout' | null>(null)
@@ -55,6 +55,11 @@ export function GridMapClient({ storeId, storeName, sections, storeMap, walkOrde
   const walk = Object.fromEntries(walkOrder.map(w => [w.section_id, w.walk_order]))
 
   useEffect(() => () => { if (hold.current) clearTimeout(hold.current.timer); if (frame.current !== null) cancelAnimationFrame(frame.current) }, [])
+  useEffect(() => {
+    const dialog = paletteRef.current
+    if (paletteOpen) dialog?.showModal()
+    else dialog?.close()
+  }, [paletteOpen])
   const point = (e: React.PointerEvent): Point => ({ x: e.clientX, y: e.clientY })
   function clearHold() { if (hold.current) clearTimeout(hold.current.timer); hold.current = null }
   function setCellSelection(next: Selection | null) { selectionRef.current = next; setSelection(next) }
@@ -64,7 +69,7 @@ export function GridMapClient({ storeId, storeName, sections, storeMap, walkOrde
     clearHold(); drag.current = null; setDragging(null); setDragPoint(null); setOverBin(false)
     selectionStart.current = null; setCellSelection(null)
   }
-  function cancelGesture() { cancelEdit(); pinch.current = null; pan.current = null; multiTouch.current = false; pointers.current.clear(); setNavigating(false) }
+  function cancelGesture() { cancelEdit(); setPaletteOpen(false); pinch.current = null; pan.current = null; multiTouch.current = false; pointers.current.clear(); setNavigating(false) }
   function cellAt(p: Point) {
     const rect = gridRef.current?.getBoundingClientRect()
     if (!rect) return null
@@ -120,7 +125,7 @@ export function GridMapClient({ storeId, storeName, sections, storeMap, walkOrde
   function onTilePointerDown(index: number, e: React.PointerEvent) {
     if (!editing || multiTouch.current || e.button !== 0) return
     e.preventDefault(); e.stopPropagation(); setMenu(null); setSelectedBlock(index); setCellSelection(null)
-    setSelectedSection(null); setPlacing(null)
+    setPlacing(null)
     const p = point(e), id = e.pointerId
     if (e.pointerType !== 'touch' || moveArmed) startDrag(index, 'move', p, id)
     else {
@@ -176,7 +181,7 @@ export function GridMapClient({ storeId, storeName, sections, storeMap, walkOrde
       const block = { section_id: sectionId, col: s.col, row: s.row, width: s.w, height: s.h }
       if (fits(block)) { setBlocks(previous => [...previous,block]); setSelectedBlock(blocks.length) }
     }
-    setCellSelection(null); setSelectedSection(null)
+    setCellSelection(null); setPaletteOpen(false)
   }
   function onPointerUp(e: React.PointerEvent<HTMLDivElement>) {
     pointers.current.delete(e.pointerId); clearHold()
@@ -186,7 +191,7 @@ export function GridMapClient({ storeId, storeName, sections, storeMap, walkOrde
     }
     const current = drag.current
     if (current?.edge === 'move' && insideBin(point(e))) deleteBlock(current.index)
-    else if (selectionStart.current && selectedSection) placeAtSelection(selectedSection)
+    else if (selectionStart.current && selectionRef.current) setPaletteOpen(true)
     selectionStart.current = null; drag.current = null; pan.current = null
     setDragging(null); setDragPoint(null); setOverBin(false)
   }
@@ -218,47 +223,38 @@ export function GridMapClient({ storeId, storeName, sections, storeMap, walkOrde
 
   const selected = selectedBlock === null ? null : blocks[selectedBlock]
   const selectedName = selected ? sectionMap[selected.section_id]?.name_nn : ''
-  return <div className="mx-auto max-w-lg px-4 pt-6 pb-24">
-    <div className="flex items-center gap-3 mb-4">
+  return <div className="mx-auto max-w-lg px-3 pt-3 pb-4">
+    <div className="flex items-center gap-2 mb-3">
       <button onClick={() => router.back()} className="text-[#64748B]" aria-label="Tilbake"><ArrowLeft className="h-5 w-5" /></button>
       <div className="flex-1 min-w-0"><h1 className="text-lg font-bold">{t('map.title')}</h1><p className="text-xs text-[#64748B]">{storeName}</p></div>
       {canEdit && <div className="flex rounded-lg border overflow-hidden">
         <button onClick={() => { cancelGesture(); setMode('view'); setSelectedBlock(null); setMenu(null) }} className={`min-h-11 px-3 text-xs ${mode==='view'?'bg-primary text-white':'bg-white'}`}><Eye className="h-4 w-4 inline mr-1" />{t('map.view')}</button>
-        <button onClick={() => { cancelGesture(); setMode('edit'); setPanning(false) }} className={`min-h-11 px-3 text-xs ${mode==='edit'?'bg-primary text-white':'bg-white'}`}><Pencil className="h-4 w-4 inline mr-1" />{t('map.edit')}</button>
+        {mode==='view' && <button onClick={() => { cancelGesture(); setMode('edit'); setPanning(false) }} className="min-h-11 px-3 text-xs bg-white"><Pencil className="h-4 w-4 inline mr-1" />{t('map.edit')}</button>}
       </div>}
+      {mode==='edit' && <Button onClick={handleSave} className="min-h-11 px-3" disabled={saving}>{saving?'Lagrar…':'Lagre kart'}</Button>}
     </div>
     {mode==='edit' && <div className="mb-3 space-y-2">
       <div className="flex gap-2">
-        <button onClick={() => { cancelGesture(); setPlacing('entrance'); setPanning(false); setSelectedBlock(null); setSelectedSection(null) }} className={`flex-1 min-h-11 rounded-lg border p-2 text-xs bg-white ${placing==='entrance'?'ring-2 ring-primary':''}`}>🚪 Plasser inngang</button>
-        <button onClick={() => { cancelGesture(); setPlacing('checkout'); setPanning(false); setSelectedBlock(null); setSelectedSection(null) }} className={`flex-1 min-h-11 rounded-lg border p-2 text-xs bg-white ${placing==='checkout'?'ring-2 ring-primary':''}`}>💳 Plasser kasse</button>
+        <button onClick={() => { cancelGesture(); setPlacing(placing==='entrance'?null:'entrance'); setPanning(false); setSelectedBlock(null) }} className={`flex-1 min-h-11 rounded-lg border p-2 text-xs bg-white ${placing==='entrance'?'ring-2 ring-primary':''}`}>🚪 Plasser inngang</button>
+        <button onClick={() => { cancelGesture(); setPlacing(placing==='checkout'?null:'checkout'); setPanning(false); setSelectedBlock(null) }} className={`flex-1 min-h-11 rounded-lg border p-2 text-xs bg-white ${placing==='checkout'?'ring-2 ring-primary':''}`}>💳 Plasser kasse</button>
         <button onClick={() => { if (blocks.length && confirm('Tømme heile kartet? Endringa blir lagra når du trykkjer «Lagre kart».')) { cancelGesture(); setBlocks([]); setSelectedBlock(null) } }} className="min-h-11 rounded-lg border px-3 text-xs bg-white text-red-600">Tøm kartet</button>
       </div>
-      <button type="button" aria-expanded={paletteOpen} onClick={()=>setPaletteOpen(!paletteOpen)} className="min-h-11 w-full truncate rounded-lg border bg-white px-3 text-left text-sm">{selectedSection ? `${sectionMap[selectedSection]?.icon} ${sectionMap[selectedSection]?.name_nn}` : 'Legg til felt'} {paletteOpen?'▾':'▸'}</button>
-      {paletteOpen && <div className="flex flex-wrap gap-1.5 rounded-lg border bg-white p-2">
-        {sections.map(s => <button key={s.id} onClick={() => { setPaletteOpen(false); setPanning(false); setSelectedBlock(null); setPlacing(null); if (selectionRef.current) placeAtSelection(s.id); else setSelectedSection(selectedSection===s.id?null:s.id) }}
-          className={`flex items-center gap-1 rounded px-2 py-2 text-[11px] font-medium ${selectedSection===s.id?'ring-2 ring-primary':''}`} style={{ backgroundColor:s.color+'20',color:s.color }}>{s.icon} {s.name_nn}</button>)}
-      </div>}
     </div>}
-    <div className="flex flex-wrap items-center gap-2 mb-2">
+    <div className="hidden flex-wrap items-center gap-2 mb-2 [@media(pointer:fine)]:flex">
       <button onClick={() => changeZoom(Math.max(1,zoom-0.5))} disabled={zoom<=1} aria-label="Zoom ut" className="h-11 w-11 rounded-lg border bg-white text-xl disabled:opacity-30">−</button>
       <span aria-live="polite" className="min-w-[3rem] text-center text-xs tabular-nums">{Math.round(zoom*100)}%</span>
       <button onClick={() => changeZoom(Math.min(4,zoom+0.5))} disabled={zoom>=4} aria-label="Zoom inn" className="h-11 w-11 rounded-lg border bg-white text-xl disabled:opacity-30">+</button>
       <button onClick={() => changeZoom(1)} className="min-h-11 rounded-lg border bg-white px-3 text-xs">Vis heile</button>
       {mode==='edit' && <button aria-pressed={panning} onClick={() => { cancelGesture(); setPanning(!panning); setMenu(null) }} className={`min-h-11 rounded-lg border px-3 text-xs ${panning?'bg-primary text-white':'bg-white'}`}>Flytt kartet</button>}
     </div>
-    <p className="mb-2 text-xs text-[#64748B]">{mode==='edit' ? 'To fingrar flyttar og zoomar kartet. Trykk på eit felt for kantane. Hald inne for å flytte feltet.' : 'Dra for å flytte kartet. Bruk to fingrar for å zoome.'}</p>
-    {mode==='edit' && <div className="mb-2 flex min-h-[60px] items-center gap-2 rounded-lg border bg-white p-2">
-      {editing && selected && selectedBlock!==null ? <>
-        <span className="min-w-0 flex-1 truncate text-sm font-medium" title={selectedName}>{selectedName} · {selected.width}×{selected.height}</span>
-        <button aria-label="Flytt feltet" aria-pressed={moveArmed} onClick={() => armMove(selectedBlock)} className={`min-h-11 shrink-0 rounded-lg border px-3 text-xs ${moveArmed?'bg-primary text-white':''}`}><Move className="mr-1 inline h-4 w-4" />Flytt</button>
-        <button aria-label="Slett feltet" onClick={() => deleteBlock(selectedBlock)} className="min-h-11 shrink-0 rounded-lg border border-red-200 px-3 text-xs text-red-600"><Trash2 className="mr-1 inline h-4 w-4" />Slett</button>
-      </> : <p className="text-xs text-[#64748B]">{panning?'Dra for å flytte kartet.':'Vel eit felt for å flytte, endre storleik eller slette det.'}</p>}
-    </div>}
+    <p className="mb-2 text-xs text-[#64748B]">{placing ? `Trykk i kartet for å plassere ${placing==='entrance'?'inngangen':'kassa'}.` : mode==='edit' ? 'Marker eit tomt område for å leggje til felt. To fingrar flyttar og zoomar.' : 'Dra for å flytte kartet. Bruk to fingrar for å zoome.'}</p>
+    {error && <p role="alert" className="mb-2 rounded-lg bg-white p-2 text-sm text-red-600">{error}</p>}
     {removed && mode==='edit' && <button onClick={undoDelete} className="mb-2 min-h-11 rounded-lg border bg-white px-3 text-sm"><Undo2 className="mr-1 inline h-4 w-4" />Angre sletting</button>}
-    <div ref={viewportRef} className={`overflow-auto rounded-lg border bg-[#F8FAFC] ${mode==='edit'?'max-h-[45dvh]':'max-h-[65dvh]'}`} role="region" aria-label="Butikkart" tabIndex={0}
+    <div className="relative">
+    <div ref={viewportRef} className="h-[calc(100dvh-19rem)] min-h-64 overflow-auto rounded-lg border bg-[#F8FAFC] [@media(pointer:fine)]:h-[calc(100dvh-22rem)]" role="region" aria-label="Butikkart" tabIndex={0}
       style={{ touchAction:'none',WebkitTouchCallout:'none',scrollbarGutter:'stable' }} onPointerDownCapture={onPointerDownCapture} onPointerMove={onPointerMove} onPointerUp={onPointerUp}
       onPointerCancel={cancelGesture} onContextMenu={e => { if (mode==='edit') e.preventDefault() }}>
-      <div className="p-6" style={{ width:`${zoom*100}%` }}>
+      <div className="p-4" style={{ width:`${zoom*100}%` }}>
         <div ref={gridRef} className="relative rounded-lg border bg-[#F1F5F9]" style={{ aspectRatio:`${gridCols}/${gridRows}` }}>
           <svg className="pointer-events-none absolute inset-0 h-full w-full" aria-hidden="true">
             {Array.from({length:gridCols+1},(_,i)=><line key={`v${i}`} x1={`${i/gridCols*100}%`} y1="0" x2={`${i/gridCols*100}%`} y2="100%" stroke="#E2E8F0" />)}
@@ -290,6 +286,12 @@ export function GridMapClient({ storeId, storeName, sections, storeMap, walkOrde
         </div>
       </div>
     </div>
+    {editing && selected && selectedBlock!==null && !dragging && !navigating && <div className="absolute bottom-2 left-2 right-2 z-40 flex items-center gap-2 rounded-lg border bg-white/95 p-2 shadow-sm">
+      <span className="min-w-0 flex-1 text-xs" title={selectedName}><strong className="block truncate">{selectedName} · {selected.width}×{selected.height}</strong><span className="text-[#64748B]">Dra i kantane for å endre storleik.</span></span>
+      <button aria-label="Flytt feltet" aria-pressed={moveArmed} onClick={() => armMove(selectedBlock)} className={`min-h-11 shrink-0 rounded-lg border px-3 text-xs ${moveArmed?'bg-primary text-white':''}`}><Move className="mr-1 inline h-4 w-4" />Flytt</button>
+      <button aria-label="Slett feltet" onClick={() => deleteBlock(selectedBlock)} className="min-h-11 shrink-0 rounded-lg border border-red-200 px-3 text-xs text-red-600"><Trash2 className="h-4 w-4" /></button>
+    </div>}
+    </div>
     <div className="mt-3 flex justify-between text-xs text-[#94A3B8]"><span>🚪 {t('map.entrance')} · 💳 {t('map.checkout')}</span><span>{blocks.length} seksjonar plasserte</span></div>
     {dragging?.edge==='move' && <div ref={binRef} role="region" aria-label="Slepp feltet her for å slette" className={`fixed bottom-36 left-1/2 z-[90] flex min-h-16 w-60 -translate-x-1/2 items-center justify-center gap-2 rounded-xl border-2 border-dashed shadow-lg ${overBin?'border-red-700 bg-red-600 text-white':'border-red-400 bg-red-50 text-red-700'}`}><Trash2 className="h-6 w-6" />Slepp her for å slette</div>}
     {dragging?.edge==='move' && dragPoint && <div className="pointer-events-none fixed z-[95] rounded-lg bg-slate-800/80 px-3 py-2 text-xs text-white" style={{left:dragPoint.x+16,top:dragPoint.y-40}}>{sectionMap[dragging.block.section_id]?.name_nn}</div>}
@@ -301,9 +303,10 @@ export function GridMapClient({ storeId, storeName, sections, storeMap, walkOrde
         <button role="menuitem" onClick={()=>setMenu(null)} className="block min-h-11 w-full rounded-lg px-3 text-left text-sm hover:bg-slate-100">Lukk</button>
       </div>
     </>}
-    {mode==='edit' && <div className="fixed bottom-20 left-0 right-0 z-40 px-4"><div className="mx-auto max-w-lg">
-      {error && <p role="alert" className="mb-2 rounded-lg bg-white p-2 text-sm text-red-600">{error}</p>}
-      <Button onClick={handleSave} className="h-12 w-full" disabled={saving}>{saving?'Lagrar…':t('map.save')}</Button>
-    </div></div>}
+    <dialog ref={paletteRef} aria-labelledby="map-section-title" onCancel={() => { setPaletteOpen(false); setCellSelection(null) }} onClose={() => { setPaletteOpen(false); setCellSelection(null) }}
+      className="fixed inset-x-3 bottom-24 top-auto m-auto max-h-[60dvh] w-[calc(100%-1.5rem)] max-w-lg overflow-y-auto rounded-xl border bg-white p-4 shadow-xl backdrop:bg-black/30">
+      <div className="mb-3 flex items-center gap-2"><h2 id="map-section-title" className="flex-1 font-semibold">Vel varegruppe</h2><button autoFocus aria-label="Avbryt" onClick={() => { setPaletteOpen(false); setCellSelection(null) }} className="flex h-11 w-11 items-center justify-center rounded-lg border"><X className="h-5 w-5" /></button></div>
+      <div className="grid grid-cols-2 gap-2">{sections.map(s => <button key={s.id} onClick={() => placeAtSelection(s.id)} className="min-h-11 rounded-lg px-3 py-2 text-left text-sm font-medium" style={{backgroundColor:s.color+'20'}}>{s.icon} {s.name_nn}</button>)}</div>
+    </dialog>
   </div>
 }
