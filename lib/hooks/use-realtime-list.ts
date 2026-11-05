@@ -25,7 +25,12 @@ export function useRealtimeList(listId: string, initialLines?: ListItem[]) {
   const pendingRef = useRef<Set<string>>(new Set())
 
   const fetchItems = useCallback(async () => {
-    const data = (await getListItems(listId)) as ListItem[] | null
+    let data: ListItem[] | null = null
+    try {
+      data = (await getListItems(listId)) as ListItem[] | null
+    } catch {
+      // Offline: keep what is on screen
+    }
     if (data) {
       setItems((prev) => {
         const serverIds = new Set(data.map((d) => d.id))

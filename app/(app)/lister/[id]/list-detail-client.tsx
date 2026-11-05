@@ -16,7 +16,8 @@ import { Badge } from '@/components/ui/badge'
 import { QuantityPickerSheet, formatQuantityDisplay, parseQuantity } from '@/components/quantity-picker-sheet'
 import { NextItemMode, type NextItemEntry } from '@/components/next-item-mode'
 import { ItemName } from '@/components/item-name'
-import { ArrowLeft, Plus, Search, X, Check, Trash2, Map, Store, RotateCcw, Bookmark, MoreVertical, UtensilsCrossed, Shuffle, ArrowRightLeft, Play, Pencil } from 'lucide-react'
+import { useOutbox, isNetworkError, type OutboxOp } from '@/lib/hooks/use-outbox'
+import { ArrowLeft, Plus, Search, X, Check, Trash2, Map, Store, RotateCcw, Bookmark, MoreVertical, UtensilsCrossed, Shuffle, ArrowRightLeft, Play, Pencil, CloudOff } from 'lucide-react'
 import type { Section, WalkOrder, ListItem } from '@/lib/types'
 
 interface Props {
@@ -61,7 +62,7 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores, i
   const [searchQuery, setSearchQuery] = useState('')
   const [searchResults, setSearchResults] = useState<any[]>([])
   const [highlightIndex, setHighlightIndex] = useState(0)
-  const [showSearch, setShowSearch] = useState(false)
+  // (the add bar is always visible now; no showSearch state)
   const [showStoreSelector, setShowStoreSelector] = useState(false)
   const [showSectionPicker, setShowSectionPicker] = useState(false)
   const [newItemName, setNewItemName] = useState('')
@@ -201,17 +202,74 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores, i
     const ticked = listItems.find((li) => li.item_id === itemId && li.is_checked)
     if (ticked) { handleToggle(ticked.id, true); setNotice(`${name} er tilbake på lista`); return }
 
-    // Show the line now, store it in the background
+    // Show the line now, store it in the background (or queue it if there is no signal)
     const clientId = newId()
-    optimisticAdd({
-      id: clientId, list_id: list.id, item_id: itemId, quantity: '1', is_checked: false,
-      checked_at: null, sort_override: null, created_at: new Date().toISOString(),
-    }, true)
-    addItemToList(list.id, itemId, undefined, clientId).then((result) => {
-      if ('listItem' in result && result.listItem) { confirmAdd(clientId, result.listItem); notifyChanged() }
-      else { rollbackAdd(clientId); setNotice(('error' in result && result.error) || 'Kunne ikkje legge til vare') }
-    }).catch(() => { rollbackAdd(clientId); setNotice('Ingen kontakt med serveren') })
+    optimisticAdd(draftLine(clientId, itemId), true)
+    send({ kind: 'add', clientId, itemId })
   }
+
+  function draftLine(clientId: string, itemId: string, quantity = '1'): ListItem {
+    return {
+      id: clientId, list_id: list.id, item_id: itemId, quantity, is_checked: false,
+      checked_at: null, sort_override: null, created_at: new Date().toISOString(),
+    }
+  }
+
+  // ── Sending writes, with an offline queue ─────────────────────────────────────
+  function runOp(op: OutboxOp): Promise<unknown> {
+    switch (op.kind) {
+      case 'add': return addItemToList(list.id, op.itemId, op.quantity, op.clientId)
+      case 'create': return createItemAndAddToList(list.id, op.name, op.sectionId, op.itemId, op.clientId)
+      case 'toggle': return toggleListItem(op.listItemId, op.checked)
+      case 'qty': return updateListItemQuantity(op.listItemId, op.quantity)
+      case 'remove': return removeListItem(op.listItemId)
+    }
+  }
+
+  /** The server answered an op (now or after the queue drained). */
+  function opAnswered(op: OutboxOp, result: any) {
+    if (op.kind === 'add' || op.kind === 'create') {
+      if (result && result.listItem) confirmAdd(op.clientId, result.listItem)
+      else { rollbackAdd(op.clientId); setNotice(result?.error || 'Kunne ikkje legge til vare') }
+    }
+  }
+
+  const outbox = useOutbox(list.id, runOp, opAnswered, () => { refetch(); notifyChanged() })
+
+  /** Send now; with no signal, keep it on the phone and send later. */
+  function send(op: OutboxOp) {
+    // Anything already waiting must go first, to keep the order
+    if (outbox.waiting > 0) { outbox.enqueue(op); return }
+    runOp(op)
+      .then((result) => { opAnswered(op, result); notifyChanged() })
+      .catch((e) => {
+        if (isNetworkError(e)) {
+          outbox.enqueue(op)
+          setNotice('Ingen nett – blir lagra når du er på nett att')
+        } else if (op.kind === 'add' || op.kind === 'create') {
+          rollbackAdd(op.clientId)
+          setNotice('Kunne ikkje lagre')
+        }
+      })
+  }
+
+  // Ops left in the queue from an earlier visit: show them again until they are sent
+  useEffect(() => {
+    for (const op of outbox.queued()) {
+      if (op.kind === 'create') {
+        const section = sections.find((s) => s.id === op.sectionId)
+        setItemsMap((prev) => prev[op.itemId] ? prev : ({
+          ...prev,
+          [op.itemId]: { id: op.itemId, name: op.name, section_id: op.sectionId, times_purchased: 0, is_confirmed: false, check_count: 0, check_order_sum: 0, sections: section },
+        }))
+        optimisticAdd(draftLine(op.clientId, op.itemId), true)
+      } else if (op.kind === 'add') optimisticAdd(draftLine(op.clientId, op.itemId, op.quantity), true)
+      else if (op.kind === 'toggle') optimisticToggle(op.listItemId, op.checked)
+      else if (op.kind === 'qty') optimisticUpdateQuantity(op.listItemId, op.quantity)
+      else if (op.kind === 'remove') optimisticRemove(op.listItemId)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once, after the queue is loaded
+  }, [])
 
   function handleCreateAndAdd(sectionId: string) {
     const name = newItemName.trim()
@@ -227,14 +285,8 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores, i
       ...prev,
       [itemId]: { id: itemId, name, section_id: sectionId, times_purchased: 0, is_confirmed: false, check_count: 0, check_order_sum: 0, sections: section },
     }))
-    optimisticAdd({
-      id: clientId, list_id: list.id, item_id: itemId, quantity: '1', is_checked: false,
-      checked_at: null, sort_override: null, created_at: new Date().toISOString(),
-    }, true)
-    createItemAndAddToList(list.id, name, sectionId, itemId, clientId).then((result) => {
-      if ('listItem' in result && result.listItem) { confirmAdd(clientId, result.listItem); notifyChanged() }
-      else { rollbackAdd(clientId); setNotice(result.error || 'Kunne ikkje opprette vare') }
-    }).catch(() => { rollbackAdd(clientId); setNotice('Ingen kontakt med serveren') })
+    optimisticAdd(draftLine(clientId, itemId), true)
+    send({ kind: 'create', clientId, itemId, name, sectionId })
   }
 
   async function handleAddMeal(mealId: string) {
@@ -259,25 +311,20 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores, i
     setMovingItemId(null)
   }
 
-  async function handleToggle(listItemId: string, currentChecked: boolean) {
-    // Optimistic update: immediately reflect in UI
+  function handleToggle(listItemId: string, currentChecked: boolean) {
     optimisticToggle(listItemId, !currentChecked)
-    await toggleListItem(listItemId, !currentChecked)
-    notifyChanged()
+    send({ kind: 'toggle', listItemId, checked: !currentChecked })
   }
 
-  async function handleQuantityUpdate(listItemId: string, quantity: string) {
+  function handleQuantityUpdate(listItemId: string, quantity: string) {
     optimisticUpdateQuantity(listItemId, quantity)
     setEditingQuantityId(null)
-    await updateListItemQuantity(listItemId, quantity)
-    notifyChanged()
+    send({ kind: 'qty', listItemId, quantity })
   }
 
-  async function handleRemove(listItemId: string) {
-    // Optimistic update: immediately remove from UI
+  function handleRemove(listItemId: string) {
     optimisticRemove(listItemId)
-    await removeListItem(listItemId)
-    notifyChanged()
+    send({ kind: 'remove', listItemId })
   }
 
   async function handleStoreChange(storeId: string) {
@@ -346,7 +393,7 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores, i
                 <Map className="h-5 w-5" />
               </Link>
             )}
-            <button onClick={() => setShowSearch(true)} className="text-[#64748B]">
+            <button onClick={() => searchRef.current?.focus()} className="text-[#64748B]" aria-label="Legg til vare">
               <Plus className="h-5 w-5" />
             </button>
             <div className="relative">
@@ -421,6 +468,14 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores, i
           >
             {list.stores?.name || t('lists.no_store')} · {t('list.switch_store')}
           </button>
+          {outbox.waiting > 0 && (
+            <span
+              className="flex items-center gap-1 text-[11px] font-medium text-[#B45309] bg-[#FEF3C7] rounded-full px-2 py-0.5"
+              title="Endringar som ventar på nett"
+            >
+              <CloudOff className="h-3 w-3" /> {outbox.waiting}
+            </span>
+          )}
           {totalItems > 0 && (
             <span className="text-xs text-[#94A3B8] ml-auto">
               {checkedCount}/{totalItems}
@@ -460,40 +515,12 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores, i
         </>
       )}
 
-      {/* Search overlay */}
-      {showSearch && (
-        <div className="border-b bg-white px-4 py-3">
-          <div className="flex items-center gap-2">
-            <Search className="h-4 w-4 text-[#94A3B8] flex-shrink-0" />
-            <Input
-              ref={searchRef}
-              value={searchQuery}
-              onChange={(e) => handleSearch(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  e.preventDefault()
-                  if (searchResults.length > 0) {
-                    handleAddItem(searchResults[highlightIndex]?.id || searchResults[0].id)
-                  } else if (searchQuery.trim().length > 0) {
-                    setNewItemName(searchQuery.trim())
-                    setShowSectionPicker(true)
-                  }
-                } else if (e.key === 'ArrowDown') {
-                  e.preventDefault()
-                  setHighlightIndex((i) => Math.min(i + 1, searchResults.length - 1))
-                } else if (e.key === 'ArrowUp') {
-                  e.preventDefault()
-                  setHighlightIndex((i) => Math.max(i - 1, 0))
-                }
-              }}
-              placeholder={t('list.search_placeholder')}
-              className="border-0 shadow-none focus-visible:ring-0 h-8"
-              autoFocus
-            />
-            <button onClick={() => { setShowSearch(false); setSearchQuery(''); setSearchResults([]); setMealResults([]) }}>
-              <X className="h-4 w-4 text-[#94A3B8]" />
-            </button>
-          </div>
+      {/* Add bar: always visible, fixed just above the bottom navigation, with
+          results opening upwards so the thumb never has to reach the top */}
+      <div className="fixed left-0 right-0 bottom-[65px] z-40 pointer-events-none">
+        <div className="mx-auto max-w-lg px-3 pointer-events-auto">
+          {(searchQuery.length > 0 || showSectionPicker) && (
+          <div className="mb-1 max-h-[45vh] overflow-y-auto rounded-xl border bg-white px-3 py-2 shadow-lg">
 
           {/* Meal results */}
           {mealResults.length > 0 && (
@@ -606,8 +633,50 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores, i
               ))}
             </div>
           )}
+          </div>
+          )}
+
+          <div className="flex items-center gap-2 rounded-xl border bg-white px-3 shadow-lg">
+            <Search className="h-4 w-4 text-[#94A3B8] flex-shrink-0" />
+            <Input
+              ref={searchRef}
+              value={searchQuery}
+              onChange={(e) => handleSearch(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault()
+                  if (searchResults.length > 0) {
+                    handleAddItem(searchResults[highlightIndex]?.id || searchResults[0].id)
+                  } else if (searchQuery.trim().length > 0) {
+                    setNewItemName(searchQuery.trim())
+                    setShowSectionPicker(true)
+                  }
+                } else if (e.key === 'ArrowDown') {
+                  e.preventDefault()
+                  setHighlightIndex((i) => Math.min(i + 1, searchResults.length - 1))
+                } else if (e.key === 'ArrowUp') {
+                  e.preventDefault()
+                  setHighlightIndex((i) => Math.max(i - 1, 0))
+                }
+              }}
+              placeholder={t('list.search_placeholder')}
+              className="border-0 shadow-none focus-visible:ring-0 h-12 px-0 text-base"
+              enterKeyHint="done"
+              autoComplete="off"
+              aria-label="Legg til vare"
+            />
+            {searchQuery && (
+              <button
+                onClick={() => { setSearchQuery(''); setSearchResults([]); setMealResults([]); setShowSectionPicker(false); searchRef.current?.focus() }}
+                aria-label="Tøm"
+                className="p-1"
+              >
+                <X className="h-4 w-4 text-[#94A3B8]" />
+              </button>
+            )}
+          </div>
         </div>
-      )}
+      </div>
 
       {/* Move item section picker overlay */}
       {movingItemId && (
@@ -642,14 +711,14 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores, i
         </div>
       )}
 
-      {/* List content */}
-      <div className="px-4 py-3">
+      {/* List content (bottom padding keeps the last rows clear of the add bar) */}
+      <div className="px-4 pt-3 pb-28">
         {loading ? (
           <p className="text-center text-[#94A3B8] py-8">Lastar...</p>
         ) : listItems.length === 0 ? (
           <div className="text-center py-12">
             <p className="text-[#64748B] mb-3">{t('list.add_item')}</p>
-            <Button onClick={() => setShowSearch(true)} variant="outline">
+            <Button onClick={() => searchRef.current?.focus()} variant="outline">
               <Plus className="h-4 w-4 mr-2" />
               {t('list.add_item')}
             </Button>
@@ -891,21 +960,11 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores, i
       })()}
 
       {notice && (
-        <div className="fixed bottom-36 left-1/2 -translate-x-1/2 z-50 rounded-lg bg-[#0F172A] text-white text-sm px-4 py-2 shadow-lg">
+        <div className="fixed bottom-[136px] left-1/2 -translate-x-1/2 z-50 rounded-lg bg-[#0F172A] text-white text-sm px-4 py-2 shadow-lg">
           {notice}
         </div>
       )}
 
-      {/* Bottom actions */}
-      <div className="fixed bottom-20 right-4 z-30">
-        <Button
-          onClick={() => setShowSearch(true)}
-          className="rounded-full h-14 w-14 shadow-lg"
-          size="icon"
-        >
-          <Plus className="h-6 w-6" />
-        </Button>
-      </div>
     </div>
   )
 }
