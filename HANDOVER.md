@@ -4,6 +4,15 @@
 
 This checkpoint supersedes the original status below:
 
+- **Read `docs/AUDIT-2026-11-05.md` before more features.** Audit found a supported
+  Next.js upgrade and retry-safe offline/atomic writes are the main priorities. Do not
+  treat Next 14.2.35 as currently patched: upstream fixes are on newer supported branches.
+  Local audit fixes restrict privileged update fields, report merge/map write errors,
+  preserve the displayed list on failed refresh, fix decimal-comma parsing, share the
+  quantity parser, parallelize map-page reads, and permit browser zoom. 13 regression
+  tests (`npm test`), TypeScript and production build pass. Full findings, remaining
+  issues and the short KISS feature list are in the audit. No live DB/schema changes
+  were made during the audit; changes are pending push approval.
 - Supabase connector is now connected. Project `txppeyposryvacjnclen` is healthy in
   **eu-north-1 (Stockholm)**, confirmed by the project API.
 - Applied the existing SQL from **0004 and 0005** through the connector. Verified the

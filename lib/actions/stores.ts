@@ -117,6 +117,7 @@ export async function saveWalkOrder(storeId: string, orders: { section_id: strin
 }
 
 export async function getStoreMap(storeId: string) {
+  if (!(await getSession())) return null
   const supabase = createServiceRoleClient()
   const { data } = await supabase
     .from('store_maps')
@@ -140,6 +141,25 @@ export async function saveStoreMap(
   const householdId = await getSession()
   if (!householdId) return { error: 'Ikkje innlogga' }
 
+  if (!mapData || typeof mapData !== 'object') return { error: 'Ugyldig kart' }
+  const { grid_cols, grid_rows, entrance_position, checkout_position, blocks } = mapData
+  const sizeOk = (n: number) => Number.isInteger(n) && n >= 1 && n <= 100
+  const pointOk = (p: { col: number; row: number }) => p && Number.isInteger(p.col) && Number.isInteger(p.row)
+    && p.col >= 0 && p.col < grid_cols && p.row >= 0 && p.row < grid_rows
+  if (!sizeOk(grid_cols) || !sizeOk(grid_rows) || !pointOk(entrance_position) || !pointOk(checkout_position)
+    || !Array.isArray(blocks) || blocks.length > 1000 || blocks.some((b) => !b || !pointOk(b)
+      || !sizeOk(b.width) || !sizeOk(b.height) || b.col + b.width > grid_cols || b.row + b.height > grid_rows
+      || typeof b.section_id !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(b.section_id))) {
+    return { error: 'Ugyldig kart' }
+  }
+  // Only copy known fields. Nested objects from a server action are untrusted too.
+  const safeMap = {
+    grid_cols, grid_rows,
+    entrance_position: { col: entrance_position.col, row: entrance_position.row },
+    checkout_position: { col: checkout_position.col, row: checkout_position.row },
+    blocks: blocks.map(({ section_id, col, row, width, height }) => ({ section_id, col, row, width, height })),
+  }
+
   const household = await getHousehold()
   if (!household) return { error: 'Ikkje innlogga' }
 
@@ -156,39 +176,23 @@ export async function saveStoreMap(
   const canEdit = household.is_admin || store.mapped_by_household_id === householdId
   if (!canEdit) return { error: 'Ingen tilgang' }
 
-  const { data: existing } = await supabase
-    .from('store_maps')
-    .select('id')
-    .eq('store_id', storeId)
-    .single()
-
-  if (existing) {
-    await supabase
-      .from('store_maps')
-      .update({
-        ...mapData,
-        updated_by_household_id: householdId,
-      })
-      .eq('store_id', storeId)
-  } else {
-    await supabase
-      .from('store_maps')
-      .insert({
-        store_id: storeId,
-        ...mapData,
-        updated_by_household_id: householdId,
-      })
-  }
+  const { error: saveError } = await supabase.from('store_maps').upsert({
+    ...safeMap,
+    store_id: storeId,
+    updated_by_household_id: householdId,
+  }, { onConflict: 'store_id' })
+  if (saveError) return { error: 'Kunne ikkje lagre kartet' }
 
   // Mark store as mapped if not already
   if (!store.is_mapped) {
-    await supabase
+    const { error } = await supabase
       .from('stores')
       .update({
         is_mapped: true,
         mapped_by_household_id: store.mapped_by_household_id || householdId,
       })
       .eq('id', storeId)
+    if (error) return { error: 'Kartet er lagra, men butikken kunne ikkje oppdaterast' }
   }
 
   revalidatePath(`/butikkar/${storeId}/kart`)

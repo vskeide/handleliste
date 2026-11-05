@@ -57,16 +57,18 @@ export async function addLinesToList(
         is_confirmed: false,
       })),
     )
-    if (error && error.code !== '23505') return { error: 'Kunne ikkje opprette nye varer' }
+    if (error) return { error: 'Kunne ikkje opprette nye varer. Sjekk om vara finst frå før.' }
   }
 
   // Every item must belong to this household (also catches made-up ids)
   const ids = Array.from(new Set(lines.map((l) => l.itemId)))
   const { data: owned } = await supabase.from('items').select('id').eq('household_id', householdId).in('id', ids)
   const ownedIds = new Set((owned || []).map((o: any) => o.id))
+  if (ids.some((id) => !ownedIds.has(id))) return NO_ACCESS
   const valid = lines.filter((l) => ownedIds.has(l.itemId)).map((l) => ({ item_id: l.itemId, quantity: l.quantity || '1' }))
 
   const result = await mergeIntoList(supabase, listId, valid)
+  if ('error' in result) return result
   return { ...result, summary: describeMerge(result), created: toCreate.length }
 }
 
@@ -97,6 +99,7 @@ export async function copyFromPreviousList(listId: string) {
 
   const { data: lines } = await supabase.from('list_items').select('item_id, quantity').eq('list_id', last.list_id)
   const result = await mergeIntoList(supabase, listId, lines || [])
+  if ('error' in result) return result
   const from = lists.find((l) => l.id === last.list_id)?.name ?? 'førre liste'
   return { ...result, summary: describeMerge(result), from }
 }
@@ -109,12 +112,13 @@ export async function getListItems(listId: string) {
   const supabase = createServiceRoleClient()
   if (!(await ownsList(supabase, householdId, listId))) return null
 
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from('list_items')
     .select('*')
     .eq('list_id', listId)
     .order('created_at')
-  return data || []
+  // A failed refresh must not replace a real list with an empty one.
+  return error ? null : data || []
 }
 
 export async function createList(name: string, storeId?: string) {
@@ -160,10 +164,27 @@ export async function updateList(listId: string, updates: { name?: string; store
   const householdId = await getSession()
   if (!householdId) return { error: 'Ikkje innlogga' }
 
+  // Server-action arguments are untrusted at runtime, regardless of TS types.
+  const safe: { name?: string; store_id?: string | null; is_active?: boolean } = {}
+  if (!updates || typeof updates !== 'object') return { error: 'Ugyldig endring' }
+  if ('name' in updates) {
+    if (typeof updates.name !== 'string' || !updates.name.trim() || updates.name.length > 100) return { error: 'Ugyldig namn' }
+    safe.name = updates.name.trim()
+  }
+  if ('store_id' in updates) {
+    if (updates.store_id !== null && (typeof updates.store_id !== 'string' || !UUID_RE.test(updates.store_id))) return { error: 'Ugyldig butikk' }
+    safe.store_id = updates.store_id
+  }
+  if ('is_active' in updates) {
+    if (typeof updates.is_active !== 'boolean') return { error: 'Ugyldig endring' }
+    safe.is_active = updates.is_active
+  }
+  if (!Object.keys(safe).length) return { error: 'Inga endring' }
+
   const supabase = createServiceRoleClient()
   const { error } = await supabase
     .from('shopping_lists')
-    .update(updates)
+    .update(safe)
     .eq('id', listId)
     .eq('household_id', householdId)
 

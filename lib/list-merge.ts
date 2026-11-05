@@ -21,7 +21,7 @@ export async function mergeIntoList(
   db: DB,
   listId: string,
   lines: { item_id: string; quantity: string }[],
-): Promise<MergeResult> {
+): Promise<MergeResult | { error: string }> {
   const result: MergeResult = { added: 0, merged: 0, restored: 0, kept: 0 }
   if (lines.length === 0) return result
 
@@ -32,15 +32,16 @@ export async function mergeIntoList(
     wanted.set(l.item_id, prev ? addQty(prev, l.quantity) ?? prev : l.quantity)
   }
 
-  const { data: existing } = await db
+  const { data: existing, error: readError } = await db
     .from('list_items')
     .select('id, item_id, quantity, is_checked')
     .eq('list_id', listId)
     .in('item_id', Array.from(wanted.keys()))
+  if (readError) return { error: 'Kunne ikkje hente lista. Prøv igjen.' }
   const byItem = new Map((existing || []).map((e: any) => [e.item_id, e]))
 
   const inserts: { list_id: string; item_id: string; quantity: string }[] = []
-  const updates: PromiseLike<unknown>[] = []
+  const updates: PromiseLike<{ error: unknown }>[] = []
 
   wanted.forEach((qty, itemId) => {
     const line = byItem.get(itemId)
@@ -61,8 +62,12 @@ export async function mergeIntoList(
     }
   })
 
-  if (inserts.length) await db.from('list_items').insert(inserts)
-  await Promise.all(updates)
+  if (inserts.length) {
+    const { error } = await db.from('list_items').insert(inserts)
+    if (error) return { error: 'Kunne ikkje lagre alle varene. Sjekk lista før du prøver igjen.' }
+  }
+  const results = await Promise.all(updates)
+  if (results.some((r) => r.error)) return { error: 'Kunne ikkje lagre alle varene. Sjekk lista før du prøver igjen.' }
   return result
 }
 

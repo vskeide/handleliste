@@ -67,8 +67,21 @@ export async function updateMeal(mealId: string, updates: { name?: string; icon?
   const householdId = await getSession()
   if (!householdId) return { error: 'Ikkje innlogga' }
 
+  const safe: { name?: string; icon?: string } = {}
+  if (!updates || typeof updates !== 'object') return { error: 'Ugyldig endring' }
+  if ('name' in updates) {
+    if (typeof updates.name !== 'string' || !updates.name.trim() || updates.name.length > 100) return { error: 'Ugyldig namn' }
+    safe.name = updates.name.trim()
+  }
+  if ('icon' in updates) {
+    if (typeof updates.icon !== 'string' || updates.icon.length > 20) return { error: 'Ugyldig ikon' }
+    safe.icon = updates.icon
+  }
+  if (!Object.keys(safe).length) return { error: 'Inga endring' }
+
   const supabase = createServiceRoleClient()
-  await supabase.from('meals').update(updates).eq('id', mealId).eq('household_id', householdId)
+  const { error } = await supabase.from('meals').update(safe).eq('id', mealId).eq('household_id', householdId)
+  if (error) return { error: 'Kunne ikkje oppdatere middagen' }
   revalidatePath('/middagar')
   return { success: true }
 }
@@ -155,6 +168,7 @@ export async function addMealToList(mealId: string, listId: string, people?: num
   const lines = meal.meal_items.map((mi: any) => ({ item_id: mi.item_id, quantity: scaleQty(mi.quantity, factor) }))
 
   const result = await mergeIntoList(supabase, listId, lines)
+  if ('error' in result) return result
   return {
     ...result,
     summary: describeMerge(result),

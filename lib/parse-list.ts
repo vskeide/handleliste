@@ -42,7 +42,8 @@ function clean(name: string): string {
 /** Split typed or pasted text into one line per item. */
 export function splitEntries(text: string): string[] {
   return text
-    .split(/[\n,;]+|\s+og\s+/i)
+    // A comma between digits is a Norwegian decimal separator, not a new item.
+    .split(/[\n;]+|(?<!\d),|,(?!\d)|\s+og\s+/i)
     .map((s) => s.trim())
     .filter(Boolean)
 }

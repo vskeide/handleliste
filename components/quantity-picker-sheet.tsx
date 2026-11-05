@@ -3,20 +3,10 @@
 import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Minus, Plus } from 'lucide-react'
+import { UNITS, parseQty } from '@/lib/quantity'
 
-const UNITS = ['stk', 'g', 'kg', 'dl', 'L', 'ml', 'pakke', 'porsjon']
-
-export function parseQuantity(q: string): { amount: number; unit: string } {
-  const trimmed = q.trim()
-  if (/^\d+\.?\d*$/.test(trimmed)) {
-    return { amount: parseFloat(trimmed) || 1, unit: 'stk' }
-  }
-  const match = trimmed.match(/^(\d+\.?\d*)\s+(\S+)$/)
-  if (match) {
-    const unit = UNITS.includes(match[2]) ? match[2] : 'stk'
-    return { amount: parseFloat(match[1]) || 1, unit }
-  }
-  return { amount: 1, unit: 'stk' }
+export function parseQuantity(q: string) {
+  return parseQty(q)
 }
 
 export function formatQuantityDisplay(q: string): string {
@@ -43,7 +33,7 @@ export function QuantityPickerSheet({ currentQuantity, onSave, onClose }: Props)
   }
 
   function handleAmountInput(val: string) {
-    const n = parseFloat(val)
+    const n = Number(val.replace(',', '.'))
     if (!isNaN(n) && n > 0) setAmount(n)
   }
 

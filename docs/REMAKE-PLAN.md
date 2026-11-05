@@ -149,6 +149,10 @@ outside the existing Volda stores remains open.
 ### Phase 4 — AI connector
 - MCP endpoint with token auth; tested from the Claude app (voice) and ChatGPT.
 
+**Prerequisites from the 2026-11-05 audit:** upgrade to a supported patched Next.js
+branch and make queued writes/merges retry-safe before exposing more write clients.
+See `docs/AUDIT-2026-11-05.md` for the prioritized fixes and small feature shortlist.
+
 ### Phase 5 — Opening up (later)
 - Personal logins (email link) on top of households; shared layouts across households;
   Kassalapp prices.
