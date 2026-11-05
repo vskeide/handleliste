@@ -7,7 +7,7 @@
 -- content-free Realtime broadcast ping (see lib/hooks/use-realtime-list.ts).
 --
 -- Run once in Supabase → SQL Editor. Safe to run again.
--- (0001 = baseline schema dump, still to be added.)
+-- (0001 = consolidated schema snapshot captured after 0005; see its header.)
 
 begin;
 

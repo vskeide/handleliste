@@ -23,7 +23,15 @@ This checkpoint supersedes the original status below:
   removal. The fixture was removed. New UI text passed Nynorsk dictionary checking.
   No real map was saved and logged-in meal changes still need a phone check.
 - These UI changes are local, pending explicit approval to push/deploy.
-- Remaining: Kassalapp lookup outside Volda, baseline schema dump, phase 4 connector,
+- Captured `supabase/migrations/0001_baseline.sql` through the connector: schema-only,
+  consolidated through 0005, with all 16 app tables, 54 constraints, 31 indexes, the
+  trigger function, 3 triggers and server-only permissions. Compared every captured
+  definition with a second live catalog query (100/100 matched). This is a catalog
+  snapshot, not a full pg_dump: Supabase-managed schemas/settings and seed rows are
+  excluded, and a fresh-database restore has not been tested. Do not apply it to live
+  production as a new migration. `scripts/export-schema.sql` is the read-only capture query.
+- Rechecked all 16 live tables: RLS on, no browser CRUD privileges, server access intact.
+- Remaining: Kassalapp lookup outside Volda, phase 4 connector,
   and phase 5. Do not treat the original migration/access blockers below as current.
 
 From a Claude Code session to whoever picks this up next (Codex). Read this first, then
