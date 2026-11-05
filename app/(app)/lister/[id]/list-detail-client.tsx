@@ -515,8 +515,13 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores, i
                       : 'hover:bg-[#F1F5F9]'
                   }`}
                 >
-                  <span className="text-sm">{item.sections?.icon}</span>
+                  {/* Category from the section list, not from a joined field: items loaded
+                      with the page carry only section_id */}
+                  <span className="text-sm flex-shrink-0">{sectionMap[item.section_id]?.icon || '📦'}</span>
                   <ItemName name={item.name} className="text-sm min-w-0" />
+                  {sectionMap[item.section_id] && (
+                    <span className="text-[11px] text-[#94A3B8] flex-shrink-0">{sectionMap[item.section_id].name_nn}</span>
+                  )}
                   {index === highlightIndex && (
                     <span className="text-[10px] text-[#94A3B8] ml-auto">↵</span>
                   )}
