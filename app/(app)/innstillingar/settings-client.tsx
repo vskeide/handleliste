@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { logout, setHouseholdSize } from '@/lib/actions/auth'
 import { t } from '@/lib/i18n'
@@ -122,6 +123,10 @@ export function SettingsClient({ household }: Props) {
             <Badge className="bg-primary/10 text-primary border-0">Admin</Badge>
           )}
         </div>
+
+        <Link href="/innstillingar/assistentar" className="block rounded-xl border bg-white p-4 font-medium text-blue-700">
+          ChatGPT og Claude →
+        </Link>
 
         {/* Logout */}
         <Button

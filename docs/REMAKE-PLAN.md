@@ -168,6 +168,13 @@ outside the existing Volda stores remains open.
 ### Phase 4 — AI connector
 - MCP endpoint with token auth; tested from the Claude app (voice) and ChatGPT.
 
+**Status 2026-11-05:** implemented locally; migration 0007 applied. Six tools support
+selected-list reads/additions, recipe saving and saved-meal additions. OAuth PKCE,
+both providers' published identities, DCR, hashed expiring tokens, rotation and
+revocation are implemented. 38 unit tests and 10 HTTP integration groups pass.
+See `docs/ASSISTANT-CONNECTOR.md`. Production deployment, real ChatGPT/Claude account
+linking and phone/voice client checks are still pending. No model API integration.
+
 **Status:** supported framework upgrade and retry-safe main-list writes are implemented
 locally; deploy/phone checks and remaining older write paths come before adding clients.
 See `docs/AUDIT-2026-11-05.md` for remaining fixes and the small feature shortlist.

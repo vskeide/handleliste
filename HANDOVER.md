@@ -4,6 +4,19 @@
 
 This checkpoint supersedes the original status below:
 
+- **Assistant connector implemented in the side chat:** `/mcp`, OAuth discovery,
+  PKCE consent/sign-in, DCR plus ChatGPT/Claude published identities (including signed
+  client assertions), expiring/rotating hashed tokens and revocation in
+  Innstillingar → ChatGPT og Claude. Six tools read lists/meals, add items to a selected
+  list, save a recipe, and add a saved meal to a selected list. No model API calls.
+  Migration **0007 is applied**; new tables/functions are server-role-only. Recipe
+  source/instructions appear in Middagar. See `docs/ASSISTANT-CONNECTOR.md` for setup,
+  design and precise verification boundaries. 38 unit tests and 10 actual HTTP flow
+  groups pass; test fixtures were removed. Production push and real account linking
+  are pending; the connector is not claimed live or tested inside the two AI apps yet.
+- Corrected the Tailwind plugin import for Node 24 dev-server compatibility (ESM
+  import rather than `require` inside the TS config).
+
 - **Latest implementation:** Next.js **15.5.29**, React **19.3.1**, matching lint/types,
   and supported icons. Cookies/route params now use async APIs; existing HMAC cookies
   remain compatible. Removed unused Supabase Auth middleware/SSR wrapper and Zod.

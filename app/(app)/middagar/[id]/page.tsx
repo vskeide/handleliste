@@ -320,6 +320,13 @@ export default function MealDetailPage() {
         </div>
       )}
 
+      {(meal.source_url || meal.recipe_text) && (
+        <div className="px-4 pt-3 space-y-3">
+          {meal.source_url && /^https?:\/\//i.test(meal.source_url) && <a href={meal.source_url} target="_blank" rel="noopener noreferrer" className="inline-block text-sm text-blue-700 underline">Opne oppskrifta</a>}
+          {meal.recipe_text && <details className="rounded-lg border bg-white p-3"><summary className="cursor-pointer text-sm font-medium">Tilreiing</summary><p className="mt-3 whitespace-pre-wrap text-sm">{meal.recipe_text}</p></details>}
+        </div>
+      )}
+
       {/* Ingredient list */}
       <div className="px-4 py-3">
         {(!meal.meal_items || meal.meal_items.length === 0) ? (
