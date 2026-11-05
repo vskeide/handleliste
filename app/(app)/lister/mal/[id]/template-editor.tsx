@@ -7,6 +7,7 @@ import { ArrowLeft, Bookmark, Play, Plus, Search, Trash2, X } from 'lucide-react
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { QuantityPickerSheet, formatQuantityDisplay } from '@/components/quantity-picker-sheet'
+import { ItemName } from '@/components/item-name'
 import { createListFromTemplate, deleteTemplate } from '@/lib/actions/lists'
 import {
   addTemplateItem,
@@ -201,7 +202,7 @@ export function TemplateEditor({ template, initialLines, items, sections, stores
           return (
             <div key={line.id} className={`flex items-center gap-3 rounded-lg bg-white p-3 border border-[#E2E8F0] ${line.pending ? 'opacity-60' : ''}`}>
               <span className="text-sm">{sec?.icon || '📦'}</span>
-              <span className="flex-1 text-sm text-[#0F172A]">{it?.name || 'Ukjend vare'}</span>
+              <ItemName name={it?.name || 'Ukjend vare'} className="flex-1 min-w-0 text-sm text-[#0F172A]" />
               <button
                 onClick={() => !line.pending && setEditingQty(line.id)}
                 className={`text-sm min-w-[2rem] text-center px-2 py-1 rounded-lg border ${

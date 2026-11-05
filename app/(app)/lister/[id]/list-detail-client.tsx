@@ -15,6 +15,7 @@ import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { QuantityPickerSheet, formatQuantityDisplay } from '@/components/quantity-picker-sheet'
 import { NextItemMode, type NextItemEntry } from '@/components/next-item-mode'
+import { ItemName } from '@/components/item-name'
 import { ArrowLeft, Plus, Search, X, Check, Trash2, Map, Store, RotateCcw, Bookmark, MoreVertical, UtensilsCrossed, Shuffle, ArrowRightLeft, Play } from 'lucide-react'
 import type { Section, WalkOrder, ListItem } from '@/lib/types'
 
@@ -515,7 +516,7 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores, i
                   }`}
                 >
                   <span className="text-sm">{item.sections?.icon}</span>
-                  <span className="text-sm">{item.name}</span>
+                  <ItemName name={item.name} className="text-sm min-w-0" />
                   {index === highlightIndex && (
                     <span className="text-[10px] text-[#94A3B8] ml-auto">↵</span>
                   )}
@@ -643,7 +644,7 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores, i
                           <span className="text-sm">{section?.icon || '📦'}</span>
                         </button>
                         <div className="flex-1 min-w-0">
-                          <span className="text-sm text-[#0F172A]">{item.name}</span>
+                          <ItemName name={item.name} className="text-sm text-[#0F172A]" />
                           {!item.is_confirmed && (
                             <Badge className="ml-2 text-[10px] bg-[#FEF3C7] text-[#D97706] border-0">
                               {t('list.new_badge')}
@@ -693,7 +694,7 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores, i
                           <Check className="h-3.5 w-3.5 text-white" />
                         </button>
                         <span className="text-sm flex-shrink-0">{section?.icon || '📦'}</span>
-                        <span className="text-sm text-[#94A3B8] line-through flex-1">{item.name}</span>
+                        <ItemName name={item.name} className="text-sm text-[#94A3B8] line-through flex-1 min-w-0" />
                         <button onClick={() => handleRemove(li.id)} className="text-[#94A3B8] hover:text-red-500 flex-shrink-0">
                           <X className="h-4 w-4" />
                         </button>
@@ -749,7 +750,7 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores, i
                             className="flex h-6 w-6 items-center justify-center rounded-full border-2 border-[#E2E8F0] flex-shrink-0 hover:border-[#10B981] transition-colors"
                           />
                           <div className="flex-1 min-w-0">
-                            <span className="text-sm text-[#0F172A]">{item.name}</span>
+                            <ItemName name={item.name} className="text-sm text-[#0F172A]" />
                             {!item.is_confirmed && (
                               <Badge className="ml-2 text-[10px] bg-[#FEF3C7] text-[#D97706] border-0">
                                 {t('list.new_badge')}
@@ -808,7 +809,7 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores, i
                         >
                           <Check className="h-3.5 w-3.5 text-white" />
                         </button>
-                        <span className="text-sm text-[#94A3B8] line-through flex-1">{item.name}</span>
+                        <ItemName name={item.name} className="text-sm text-[#94A3B8] line-through flex-1 min-w-0" />
                         <button onClick={() => handleRemove(li.id)} className="text-[#94A3B8] hover:text-red-500 flex-shrink-0">
                           <X className="h-4 w-4" />
                         </button>

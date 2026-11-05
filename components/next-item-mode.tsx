@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { X, SkipForward, Undo2 } from 'lucide-react'
 import { formatQuantityDisplay } from '@/components/quantity-picker-sheet'
+import { ItemName, fitFontSize } from '@/components/item-name'
 
 export interface NextItemEntry {
   listItemId: string
@@ -86,12 +87,17 @@ export function NextItemMode({ items, onPick, onUndo, onClose }: Props) {
               {current.sectionIcon} {current.sectionName}
             </p>
           )}
-          <h2 className="text-5xl font-bold leading-tight text-[#0F172A] break-words">{current.name}</h2>
+          <h2
+            className="w-full font-bold leading-tight text-[#0F172A]"
+            style={{ fontSize: fitFontSize(current.name, 3) }}
+          >
+            <ItemName name={current.name} />
+          </h2>
           {current.quantity !== '1' && (
             <p className="mt-4 text-3xl font-semibold text-[#059669]">{formatQuantityDisplay(current.quantity)}</p>
           )}
           <p className="mt-10 text-sm text-[#94A3B8]">Trykk for å plukke</p>
-          {next && <p className="mt-2 text-sm text-[#94A3B8]">Neste: {next.name}</p>}
+          {next && <p className="mt-2 text-sm text-[#94A3B8]">Neste: <ItemName name={next.name} /></p>}
         </div>
       ) : (
         <div className="flex flex-1 flex-col items-center justify-center px-6 text-center" onClick={(e) => { e.stopPropagation(); onClose() }}>
