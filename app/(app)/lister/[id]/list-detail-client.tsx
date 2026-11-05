@@ -13,10 +13,10 @@ import { getMeals, addMealToList } from '@/lib/actions/meals'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
-import { QuantityPickerSheet, formatQuantityDisplay } from '@/components/quantity-picker-sheet'
+import { QuantityPickerSheet, formatQuantityDisplay, parseQuantity } from '@/components/quantity-picker-sheet'
 import { NextItemMode, type NextItemEntry } from '@/components/next-item-mode'
 import { ItemName } from '@/components/item-name'
-import { ArrowLeft, Plus, Search, X, Check, Trash2, Map, Store, RotateCcw, Bookmark, MoreVertical, UtensilsCrossed, Shuffle, ArrowRightLeft, Play } from 'lucide-react'
+import { ArrowLeft, Plus, Search, X, Check, Trash2, Map, Store, RotateCcw, Bookmark, MoreVertical, UtensilsCrossed, Shuffle, ArrowRightLeft, Play, Pencil } from 'lucide-react'
 import type { Section, WalkOrder, ListItem } from '@/lib/types'
 
 interface Props {
@@ -161,10 +161,9 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores, i
       setMealResults([])
       return
     }
-    // Hide items already on the list and not ticked; ticked ones can be re-added
-    const activeOnList = new Set(listItems.filter((li) => !li.is_checked).map((li) => li.item_id))
-    const candidates = Object.values(itemsMap).filter((it: any) => !activeOnList.has(it.id))
-    setSearchResults(searchLocal(candidates, query))
+    // Items already on the list stay in the results, marked with their quantity, so
+    // picking one again adds to the quantity instead of silently doing nothing
+    setSearchResults(searchLocal(Object.values(itemsMap), query))
     const lq = query.toLowerCase()
     setMealResults(meals.filter((m) => m.name.toLowerCase().includes(lq)))
     setHighlightIndex(0)
@@ -181,9 +180,26 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores, i
   function handleAddItem(itemId: string) {
     resetSearch()
 
-    // Already on the list but ticked off: just untick it
+    const name = itemsMap[itemId]?.name || 'Vara'
+
+    // Already on the list and not ticked: add one more (pieces), or open the amount
+    // picker when it is measured in g, L etc., where "one more" has no obvious meaning
+    const active = listItems.find((li) => li.item_id === itemId && !li.is_checked)
+    if (active) {
+      const { amount, unit } = parseQuantity(active.quantity)
+      if (unit === 'stk') {
+        const next = String(amount + 1)
+        handleQuantityUpdate(active.id, next)
+        setNotice(`${name}: ×${next}`)
+      } else {
+        setEditingQuantityId(active.id)
+      }
+      return
+    }
+
+    // Already on the list but ticked off: untick it
     const ticked = listItems.find((li) => li.item_id === itemId && li.is_checked)
-    if (ticked) { handleToggle(ticked.id, true); return }
+    if (ticked) { handleToggle(ticked.id, true); setNotice(`${name} er tilbake på lista`); return }
 
     // Show the line now, store it in the background
     const clientId = newId()
@@ -519,11 +535,35 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores, i
                       with the page carry only section_id */}
                   <span className="text-sm flex-shrink-0">{sectionMap[item.section_id]?.icon || '📦'}</span>
                   <ItemName name={item.name} className="text-sm min-w-0" />
-                  {sectionMap[item.section_id] && (
-                    <span className="text-[11px] text-[#94A3B8] flex-shrink-0">{sectionMap[item.section_id].name_nn}</span>
-                  )}
+                  {(() => {
+                    const line = listItems.find((li) => li.item_id === item.id)
+                    // On the list: "×1 +" (adds one) or "500 g ✎" (opens the amount picker).
+                    // Ticked off: "↺" (puts it back). Few words, mostly icons.
+                    if (line && !line.is_checked) {
+                      const pieces = parseQuantity(line.quantity).unit === 'stk'
+                      return (
+                        <span
+                          className="ml-auto flex items-center gap-0.5 text-[11px] font-semibold text-[#059669] bg-[#D1FAE5] rounded-full px-2 py-0.5 flex-shrink-0"
+                          title={pieces ? 'På lista – legg til éin til' : 'På lista – endre mengde'}
+                        >
+                          {formatQuantityDisplay(line.quantity)}
+                          {pieces ? <Plus className="h-3 w-3" /> : <Pencil className="h-3 w-3" />}
+                        </span>
+                      )
+                    }
+                    if (line) {
+                      return (
+                        <span className="ml-auto flex items-center text-[#94A3B8] flex-shrink-0" title="Plukka – set tilbake på lista">
+                          <RotateCcw className="h-3.5 w-3.5" />
+                        </span>
+                      )
+                    }
+                    return sectionMap[item.section_id] ? (
+                      <span className="ml-auto text-[11px] text-[#94A3B8] flex-shrink-0">{sectionMap[item.section_id].name_nn}</span>
+                    ) : null
+                  })()}
                   {index === highlightIndex && (
-                    <span className="text-[10px] text-[#94A3B8] ml-auto">↵</span>
+                    <span className="text-[10px] text-[#94A3B8] flex-shrink-0">↵</span>
                   )}
                   {!item.is_confirmed && (
                     <Badge className="text-[10px] bg-[#FEF3C7] text-[#D97706] border-0 ml-auto">
