@@ -97,6 +97,13 @@ and database rights); the grid map editor stays but is no longer needed for sort
   after confirming the Supabase region in the dashboard.
 - Clean up household `VOLDA-6611` (ask first).
 
+**Status 2026-11-05: done** except the baseline schema dump (needs DB password or
+`pg_dump`). Shipped in `a76cd2b`; migration 0002 run in the SQL Editor and verified (public
+key blocked on all 14 tables). Functions run in `arn1`; the database appears to be in
+Stockholm (AWS eu-north-1, inferred from its IPv6 address, not confirmed in the dashboard).
+Households merged by Vebjørn into one: "Krumsvik Skeide", `VOLDA-7599`
+(17 lists, 3 meals, 247 items).
+
 ### Phase 1 — Speed and the one-screen list
 - Optimistic add with client ids; single upsert per add (unique `(list_id, item_id)`).
 - Local search over a cached catalogue; Enter adds the top match instantly.
