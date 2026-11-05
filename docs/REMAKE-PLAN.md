@@ -111,6 +111,15 @@ Households merged by Vebjørn into one: "Krumsvik Skeide", `VOLDA-7599`
 - App opens on the active list; add field pinned at the bottom.
 - PWA icons + service worker; offline read and queued writes.
 
+**Status 2026-11-05: mostly done** (`0161582` and follow-ups, all live). Done: instant add
+with client ids, local search, items loaded with the page, opens on the last-used list,
+icons + service worker (last list opens offline), Vercel in `arn1`. Also shipped on request:
+delete lists from the overview, template edit page (`/lister/mal/[id]`) with templates only
+behind +, shop grid at double resolution (saved map scaled 12×14 → 24×28), long names wrap,
+re-adding an item adds to its quantity, category shown in search. Vebjørn added a full-screen
+"next item" picking mode himself (`cff2b4e`).
+**Left:** queued writes while offline; add field pinned at the bottom of the list screen.
+
 ### Phase 2 — Catalogue and meals
 - Product catalogue (~500 generic items with variants, section, default unit).
 - Free-text multi-add and line merging.
