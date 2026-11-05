@@ -23,6 +23,8 @@ export default async function SettingsPage() {
         name: household.name,
         household_code: household.household_code,
         family_size: household.family_size,
+        adults: household.adults ?? null,
+        children: household.children ?? null,
         is_admin: household.is_admin,
       }}
     />

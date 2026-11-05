@@ -130,6 +130,26 @@ export async function getSession(): Promise<string | null> {
   return readSession()
 }
 
+/** Set household size as adults (13+) and children. Needs migration 0004 for the split. */
+export async function setHouseholdSize(adults: number, children: number) {
+  const householdId = readSession()
+  if (!householdId) return { error: 'Ikkje innlogga' }
+  if (![adults, children].every((n) => Number.isInteger(n) && n >= 0 && n <= 20) || adults + children < 1) {
+    return { error: 'Ugyldig tal' }
+  }
+  const supabase = createServiceRoleClient()
+  const full = await supabase
+    .from('households')
+    .update({ adults, children, family_size: adults + children })
+    .eq('id', householdId)
+  if (!full.error) return { success: true }
+
+  // Columns missing (0004 not run): keep the head count at least
+  const basic = await supabase.from('households').update({ family_size: adults + children }).eq('id', householdId)
+  if (basic.error) return { error: 'Kunne ikkje lagre' }
+  return { success: true, warning: 'Lagra som totalt tal. Køyr databaseendring 0004 for å skilje vaksne og born.' }
+}
+
 /** Household fields that are safe to send to the browser. */
 function publicHousehold(h: Record<string, any>) {
   const { pin_hash, failed_pin_attempts, pin_locked_until, ...rest } = h

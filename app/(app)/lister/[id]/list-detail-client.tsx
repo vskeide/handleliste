@@ -32,7 +32,8 @@ interface Props {
   householdStores: any[]
   initialItems: any[]
   initialLines: ListItem[]
-  householdSize: number | null
+  householdSize: number | null   // dinner portions (adults + ½ × children)
+  householdLabel: string         // "2 vaksne + 3 born"
 }
 
 function newId(): string {
@@ -61,7 +62,7 @@ function searchLocal(all: any[], query: string, limit = 20) {
   return scored.slice(0, limit).map((s) => s.item)
 }
 
-export function ListDetailClient({ list, sections, walkOrder, householdStores, initialItems, initialLines, householdSize }: Props) {
+export function ListDetailClient({ list, sections, walkOrder, householdStores, initialItems, initialLines, householdSize, householdLabel }: Props) {
   const router = useRouter()
   const { items: listItems, loading, refetch, notifyChanged, optimisticToggle, optimisticRemove, optimisticUpdateQuantity, optimisticAdd, confirmAdd, rollbackAdd } = useRealtimeList(list.id, initialLines)
   const [notice, setNotice] = useState<string | null>(null)
@@ -286,7 +287,7 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores, i
       if (r?.error) { setNotice(r.error); return }
       await refetch()
       notifyChanged()
-      const forWhom = factor !== 1 ? ` (for ${householdSize})` : ''
+      const forWhom = factor !== 1 && householdLabel ? ` (for ${householdLabel})` : ''
       setNotice(`${meal.icon} ${meal.name}${forWhom}: ${r.summary}`)
     } catch {
       setNotice('Ingen nett – prøv igjen når du er på nett')

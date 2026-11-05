@@ -3,6 +3,7 @@ import { notFound } from 'next/navigation'
 import { createServiceRoleClient } from '@/lib/supabase/server'
 import { getWalkOrder } from '@/lib/actions/stores'
 import { ListDetailClient } from './list-detail-client'
+import { portions, describeHousehold } from '@/lib/portions'
 
 export default async function ListDetailPage({ params }: { params: { id: string } }) {
   const householdId = requireSession()
@@ -25,7 +26,7 @@ export default async function ListDetailPage({ params }: { params: { id: string 
       .select('id, name, section_id, times_purchased, is_confirmed, check_order_sum, check_count')
       .eq('household_id', householdId),
     supabase.from('list_items').select('*').eq('list_id', params.id).order('created_at'),
-    supabase.from('households').select('family_size').eq('id', householdId).maybeSingle(),
+    supabase.from('households').select('*').eq('id', householdId).maybeSingle(),
   ])
 
   const list = listRes.data
@@ -44,7 +45,8 @@ export default async function ListDetailPage({ params }: { params: { id: string 
       householdStores={storesRes.data || []}
       initialItems={itemsRes.data || []}
       initialLines={lineRes.data || []}
-      householdSize={hhRes.data?.family_size ?? null}
+      householdSize={portions(hhRes.data as any)}
+      householdLabel={describeHousehold(hhRes.data as any)}
     />
   )
 }

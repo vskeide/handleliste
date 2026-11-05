@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { logout } from '@/lib/actions/auth'
+import { logout, setHouseholdSize } from '@/lib/actions/auth'
 import { t } from '@/lib/i18n'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -15,13 +15,56 @@ interface Props {
     name: string
     household_code: string
     family_size: number
+    adults: number | null
+    children: number | null
     is_admin: boolean
   }
+}
+
+function Stepper({ label, hint, value, min, onChange }: { label: string; hint: string; value: number; min: number; onChange: (n: number) => void }) {
+  return (
+    <div className="flex items-center justify-between">
+      <div>
+        <p className="text-sm font-medium text-[#0F172A]">{label}</p>
+        <p className="text-xs text-[#94A3B8]">{hint}</p>
+      </div>
+      <div className="flex items-center gap-3">
+        <button
+          onClick={() => onChange(Math.max(min, value - 1))}
+          disabled={value <= min}
+          className="h-9 w-9 rounded-full border text-lg text-[#64748B] disabled:opacity-30"
+          aria-label={`Færre ${label.toLowerCase()}`}
+        >−</button>
+        <span className="w-6 text-center text-lg font-semibold text-[#0F172A]">{value}</span>
+        <button
+          onClick={() => onChange(Math.min(20, value + 1))}
+          className="h-9 w-9 rounded-full border text-lg text-[#64748B]"
+          aria-label={`Fleire ${label.toLowerCase()}`}
+        >+</button>
+      </div>
+    </div>
+  )
 }
 
 export function SettingsClient({ household }: Props) {
   const router = useRouter()
   const [copied, setCopied] = useState(false)
+  const [adults, setAdults] = useState(household.adults ?? household.family_size ?? 2)
+  const [children, setChildren] = useState(household.children ?? 0)
+  const [sizeNote, setSizeNote] = useState<string | null>(null)
+
+  async function saveSize(a: number, c: number) {
+    setAdults(a)
+    setChildren(c)
+    setSizeNote(null)
+    const r: any = await setHouseholdSize(a, c)
+    if (r?.error) setSizeNote(r.error)
+    else if (r?.warning) setSizeNote(r.warning)
+    else {
+      setSizeNote('Lagra')
+      setTimeout(() => setSizeNote(null), 1500)
+    }
+  }
 
   async function handleLogout() {
     await logout()
@@ -63,11 +106,16 @@ export function SettingsClient({ household }: Props) {
             <p className="text-xs text-[#94A3B8] mt-1">{t('auth.code_share')}</p>
           </div>
 
-          <div>
+          <div className="space-y-3">
             <label className="text-xs text-[#64748B] uppercase tracking-wider">
               {t('settings.family_size')}
             </label>
-            <p className="text-lg font-semibold text-[#0F172A] mt-1">{household.family_size}</p>
+            <Stepper label="Vaksne" hint="13 år og eldre" value={adults} min={1} onChange={(n) => saveSize(n, children)} />
+            <Stepper label="Born" hint="Under 13 – tel som ein halv porsjon" value={children} min={0} onChange={(n) => saveSize(adults, n)} />
+            <p className="text-xs text-[#94A3B8]">
+              Middagar blir skalerte til {adults + children * 0.5} porsjonar.
+              {sizeNote && <span className="ml-1 text-[#059669]">{sizeNote}</span>}
+            </p>
           </div>
 
           {household.is_admin && (

@@ -10,6 +10,7 @@ import { parseEntry, splitEntries } from '@/lib/parse-list'
 import { resolveName, guessSection, displayName, type KnownItem } from '@/lib/match'
 import { STARTER_MEALS } from '@/lib/starter-meals'
 import { randomUUID } from 'node:crypto'
+import { portions, describeHousehold } from '@/lib/portions'
 
 const NO_ACCESS = { error: 'Ingen tilgang' }
 
@@ -137,18 +138,23 @@ export async function addMealToList(mealId: string, listId: string, people?: num
     ownsList(supabase, householdId, listId),
     // select('*') so this works before and after the servings column exists
     supabase.from('meals').select('*, meal_items(item_id, quantity)').eq('id', mealId).eq('household_id', householdId).maybeSingle(),
-    supabase.from('households').select('family_size').eq('id', householdId).maybeSingle(),
+    // select('*') so this works before and after migration 0004 (adults/children)
+    supabase.from('households').select('*').eq('id', householdId).maybeSingle(),
   ])
   if (!listOk) return NO_ACCESS
   const meal = mealRes.data as any
   if (!meal?.meal_items?.length) return { error: 'Middagen har ingen varer' }
 
-  const target = people ?? hhRes.data?.family_size ?? null
+  const target = people ?? portions(hhRes.data as any)
   const factor = meal.servings && target ? target / meal.servings : 1
   const lines = meal.meal_items.map((mi: any) => ({ item_id: mi.item_id, quantity: scaleQty(mi.quantity, factor) }))
 
   const result = await mergeIntoList(supabase, listId, lines)
-  return { ...result, summary: describeMerge(result), scaledFor: meal.servings && target ? target : null }
+  return {
+    ...result,
+    summary: describeMerge(result),
+    scaledFor: meal.servings && target ? (people ? `${people}` : describeHousehold(hhRes.data as any)) : null,
+  }
 }
 
 /**
