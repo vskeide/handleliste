@@ -26,7 +26,7 @@ interface Props {
 
 export function ListDetailClient({ list, sections, walkOrder, householdStores }: Props) {
   const router = useRouter()
-  const { items: listItems, loading, optimisticToggle, optimisticRemove, optimisticUpdateQuantity, optimisticAdd } = useRealtimeList(list.id)
+  const { items: listItems, loading, refetch, notifyChanged, optimisticToggle, optimisticRemove, optimisticUpdateQuantity, optimisticAdd } = useRealtimeList(list.id)
   const [searchQuery, setSearchQuery] = useState('')
   const [searchResults, setSearchResults] = useState<any[]>([])
   const [highlightIndex, setHighlightIndex] = useState(0)
@@ -102,7 +102,7 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores }:
 
   async function handleAddItem(itemId: string) {
     const result = await addItemToList(list.id, itemId)
-    if (result.listItem) optimisticAdd(result.listItem)
+    if ('listItem' in result && result.listItem) { optimisticAdd(result.listItem); notifyChanged() }
     setSearchQuery('')
     setSearchResults([])
     // Keep search open and refocus for quick consecutive adds
@@ -113,7 +113,7 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores }:
     const result = await createItem(newItemName, sectionId)
     if (result.item) {
       const addResult = await addItemToList(list.id, result.item.id)
-      if (addResult.listItem) optimisticAdd(addResult.listItem)
+      if ('listItem' in addResult && addResult.listItem) { optimisticAdd(addResult.listItem); notifyChanged() }
       // Add the new item to the local items map immediately
       setItemsMap((prev) => ({ ...prev, [result.item.id]: { ...result.item, sections: sections.find((s) => s.id === sectionId) } }))
     }
@@ -127,6 +127,8 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores }:
 
   async function handleAddMeal(mealId: string) {
     await addMealToList(mealId, list.id)
+    await refetch()
+    notifyChanged()
     setSearchQuery('')
     setSearchResults([])
     setMealResults([])
@@ -149,18 +151,21 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores }:
     // Optimistic update: immediately reflect in UI
     optimisticToggle(listItemId, !currentChecked)
     await toggleListItem(listItemId, !currentChecked)
+    notifyChanged()
   }
 
   async function handleQuantityUpdate(listItemId: string, quantity: string) {
     optimisticUpdateQuantity(listItemId, quantity)
     setEditingQuantityId(null)
     await updateListItemQuantity(listItemId, quantity)
+    notifyChanged()
   }
 
-    async function handleRemove(listItemId: string) {
+  async function handleRemove(listItemId: string) {
     // Optimistic update: immediately remove from UI
     optimisticRemove(listItemId)
     await removeListItem(listItemId)
+    notifyChanged()
   }
 
   async function handleStoreChange(storeId: string) {
@@ -171,6 +176,8 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores }:
 
   async function handleUncheckAll() {
     await uncheckAllItems(list.id)
+    await refetch()
+    notifyChanged()
     setShowMenu(false)
   }
 

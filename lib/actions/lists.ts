@@ -3,6 +3,25 @@
 import { createServiceRoleClient } from '@/lib/supabase/server'
 import { getSession } from './auth'
 import { revalidatePath } from 'next/cache'
+import { ownsList, ownedListItem, ownsItem, ownsTemplate } from '@/lib/ownership'
+
+const NO_ACCESS = { error: 'Ingen tilgang' }
+
+/** List lines for one list. Replaces the browser's direct table read (blocked by RLS). */
+export async function getListItems(listId: string) {
+  const householdId = await getSession()
+  if (!householdId) return null
+
+  const supabase = createServiceRoleClient()
+  if (!(await ownsList(supabase, householdId, listId))) return null
+
+  const { data } = await supabase
+    .from('list_items')
+    .select('*')
+    .eq('list_id', listId)
+    .order('created_at')
+  return data || []
+}
 
 export async function createList(name: string, storeId?: string) {
   const householdId = await getSession()
@@ -62,6 +81,9 @@ export async function addItemToList(listId: string, itemId: string, quantity?: s
   if (!householdId) return { error: 'Ikkje innlogga' }
 
   const supabase = createServiceRoleClient()
+  if (!(await ownsList(supabase, householdId, listId)) || !(await ownsItem(supabase, householdId, itemId))) {
+    return NO_ACCESS
+  }
 
   // Check item isn't already on the list
   const { data: existing } = await supabase
@@ -92,6 +114,8 @@ export async function toggleListItem(listItemId: string, isChecked: boolean) {
   if (!householdId) return { error: 'Ikkje innlogga' }
 
   const supabase = createServiceRoleClient()
+  const listItem = await ownedListItem(supabase, householdId, listItemId)
+  if (!listItem) return NO_ACCESS
 
   const updates: Record<string, unknown> = {
     is_checked: isChecked,
@@ -100,13 +124,7 @@ export async function toggleListItem(listItemId: string, isChecked: boolean) {
 
   // Increment times_purchased and track check order when checking off
   if (isChecked) {
-    const { data: listItem } = await supabase
-      .from('list_items')
-      .select('item_id, list_id')
-      .eq('id', listItemId)
-      .single()
-
-    if (listItem) {
+    {
       // Count how many items are already checked in this list (= position)
       const { count } = await supabase
         .from('list_items')
@@ -149,6 +167,7 @@ export async function removeListItem(listItemId: string) {
   if (!householdId) return { error: 'Ikkje innlogga' }
 
   const supabase = createServiceRoleClient()
+  if (!(await ownedListItem(supabase, householdId, listItemId))) return NO_ACCESS
   const { error } = await supabase
     .from('list_items')
     .delete()
@@ -163,6 +182,7 @@ export async function uncheckAllItems(listId: string) {
   if (!householdId) return { error: 'Ikkje innlogga' }
 
   const supabase = createServiceRoleClient()
+  if (!(await ownsList(supabase, householdId, listId))) return NO_ACCESS
   const { error } = await supabase
     .from('list_items')
     .update({ is_checked: false, checked_at: null })
@@ -178,6 +198,7 @@ export async function saveAsTemplate(listId: string, templateName: string) {
   if (!householdId) return { error: 'Ikkje innlogga' }
 
   const supabase = createServiceRoleClient()
+  if (!(await ownsList(supabase, householdId, listId))) return NO_ACCESS
 
   // Get current list items
   const { data: listItems } = await supabase
@@ -245,6 +266,7 @@ export async function createListFromTemplate(templateId: string, listName: strin
     .from('list_templates')
     .select('*, template_items(item_id, quantity)')
     .eq('id', templateId)
+    .eq('household_id', householdId)
     .single()
 
   if (!template) return { error: 'Mal ikkje funnen' }
@@ -281,6 +303,7 @@ export async function deleteTemplate(templateId: string) {
   if (!householdId) return { error: 'Ikkje innlogga' }
 
   const supabase = createServiceRoleClient()
+  if (!(await ownsTemplate(supabase, householdId, templateId))) return NO_ACCESS
   await supabase.from('template_items').delete().eq('template_id', templateId)
   await supabase.from('list_templates').delete().eq('id', templateId).eq('household_id', householdId)
 
@@ -293,6 +316,7 @@ export async function updateListItemQuantity(listItemId: string, quantity: strin
   if (!householdId) return { error: 'Ikkje innlogga' }
 
   const supabase = createServiceRoleClient()
+  if (!(await ownedListItem(supabase, householdId, listItemId))) return NO_ACCESS
   const { error } = await supabase
     .from('list_items')
     .update({ quantity })

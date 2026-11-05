@@ -3,6 +3,9 @@
 import { createServiceRoleClient } from '@/lib/supabase/server'
 import { getSession } from './auth'
 import { revalidatePath } from 'next/cache'
+import { ownsMeal, ownedMealItem, ownsItem, ownsList } from '@/lib/ownership'
+
+const NO_ACCESS = { error: 'Ingen tilgang' }
 
 export async function getMeals() {
   const householdId = await getSession()
@@ -68,6 +71,7 @@ export async function deleteMeal(mealId: string) {
   if (!householdId) return { error: 'Ikkje innlogga' }
 
   const supabase = createServiceRoleClient()
+  if (!(await ownsMeal(supabase, householdId, mealId))) return NO_ACCESS
   await supabase.from('meal_items').delete().eq('meal_id', mealId)
   await supabase.from('meals').delete().eq('id', mealId).eq('household_id', householdId)
   revalidatePath('/middagar')
@@ -75,7 +79,13 @@ export async function deleteMeal(mealId: string) {
 }
 
 export async function addMealItem(mealId: string, itemId: string, quantity?: string) {
+  const householdId = await getSession()
+  if (!householdId) return { error: 'Ikkje innlogga' }
+
   const supabase = createServiceRoleClient()
+  if (!(await ownsMeal(supabase, householdId, mealId)) || !(await ownsItem(supabase, householdId, itemId))) {
+    return NO_ACCESS
+  }
 
   const { data: existing } = await supabase
     .from('meal_items')
@@ -97,7 +107,11 @@ export async function addMealItem(mealId: string, itemId: string, quantity?: str
 }
 
 export async function removeMealItem(mealItemId: string) {
+  const householdId = await getSession()
+  if (!householdId) return { error: 'Ikkje innlogga' }
+
   const supabase = createServiceRoleClient()
+  if (!(await ownedMealItem(supabase, householdId, mealItemId))) return NO_ACCESS
   await supabase.from('meal_items').delete().eq('id', mealItemId)
   revalidatePath('/middagar')
   return { success: true }
@@ -108,12 +122,14 @@ export async function addMealToList(mealId: string, listId: string) {
   if (!householdId) return { error: 'Ikkje innlogga' }
 
   const supabase = createServiceRoleClient()
+  if (!(await ownsList(supabase, householdId, listId))) return NO_ACCESS
 
   // Get meal items
   const { data: meal } = await supabase
     .from('meals')
     .select('meal_items(item_id, quantity)')
     .eq('id', mealId)
+    .eq('household_id', householdId)
     .single()
 
   if (!meal?.meal_items?.length) return { error: 'Måltidet har ingen varer' }
@@ -143,7 +159,11 @@ export async function addMealToList(mealId: string, listId: string) {
 }
 
 export async function updateMealItemQuantity(mealItemId: string, quantity: string) {
+  const householdId = await getSession()
+  if (!householdId) return { error: 'Ikkje innlogga' }
+
   const supabase = createServiceRoleClient()
+  if (!(await ownedMealItem(supabase, householdId, mealItemId))) return NO_ACCESS
   const { error } = await supabase
     .from('meal_items')
     .update({ quantity })

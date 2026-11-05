@@ -1,9 +1,11 @@
 'use server'
 
-import { cookies } from 'next/headers'
 import bcrypt from 'bcryptjs'
 import { createServiceRoleClient } from '@/lib/supabase/server'
-import { SESSION_COOKIE_NAME, SESSION_MAX_AGE } from '@/lib/constants'
+import { readSession, writeSession, clearSession } from '@/lib/session'
+
+const MAX_PIN_ATTEMPTS = 5
+const PIN_LOCK_MINUTES = 15
 
 function generateHouseholdCode(): string {
   const suffix = Math.floor(1000 + Math.random() * 9000)
@@ -12,6 +14,9 @@ function generateHouseholdCode(): string {
 
 export async function createHousehold(name: string, pin: string) {
   if (!name.trim()) return { error: 'Namn er påkrevd' }
+  if (/^[A-Z]+-\d{4}$/i.test(name.trim())) {
+    return { error: 'Dette ser ut som ein husstandskode. Bruk «Bli med» for å logge inn.' }
+  }
   if (pin.length < 4 || pin.length > 6 || !/^\d+$/.test(pin)) {
     return { error: 'PIN må vere 4-6 siffer' }
   }
@@ -67,10 +72,9 @@ export async function createHousehold(name: string, pin: string) {
   // Pre-seed 215 items for this household
   await seedHouseholdItems(supabase, household.id)
 
-  // Set session cookie
-  setSessionCookie(household.id)
+  writeSession(household.id)
 
-  return { household }
+  return { household: publicHousehold(household) }
 }
 
 export async function joinHousehold(code: string, pin: string) {
@@ -85,23 +89,51 @@ export async function joinHousehold(code: string, pin: string) {
     .eq('household_code', code.trim().toUpperCase())
     .single()
 
-  if (error || !household) return { error: 'Fann ikkje husstand' }
+  // Same message for unknown code and wrong PIN, so the form can't be used to find codes
+  const wrong = { error: 'Feil kode eller PIN' }
+  if (error || !household) return wrong
+
+  // Lockout after repeated wrong PINs (columns added in migration 0002; tolerated if absent)
+  const lockedUntil = household.pin_locked_until ? new Date(household.pin_locked_until) : null
+  if (lockedUntil && lockedUntil > new Date()) {
+    return { error: `For mange feil forsøk. Prøv igjen om ${PIN_LOCK_MINUTES} minutt.` }
+  }
 
   const valid = await bcrypt.compare(pin, household.pin_hash)
-  if (!valid) return { error: 'Feil PIN-kode' }
+  if (!valid) {
+    const attempts = (household.failed_pin_attempts ?? 0) + 1
+    await supabase
+      .from('households')
+      .update({
+        failed_pin_attempts: attempts >= MAX_PIN_ATTEMPTS ? 0 : attempts,
+        pin_locked_until:
+          attempts >= MAX_PIN_ATTEMPTS ? new Date(Date.now() + PIN_LOCK_MINUTES * 60_000).toISOString() : null,
+      })
+      .eq('id', household.id)
+    return wrong
+  }
 
-  setSessionCookie(household.id)
+  if (household.failed_pin_attempts) {
+    await supabase.from('households').update({ failed_pin_attempts: 0, pin_locked_until: null }).eq('id', household.id)
+  }
 
-  return { household }
+  writeSession(household.id)
+
+  return { household: publicHousehold(household) }
 }
 
 export async function logout() {
-  cookies().set(SESSION_COOKIE_NAME, '', { maxAge: 0, path: '/' })
+  clearSession()
 }
 
 export async function getSession(): Promise<string | null> {
-  const cookieStore = cookies()
-  return cookieStore.get(SESSION_COOKIE_NAME)?.value ?? null
+  return readSession()
+}
+
+/** Household fields that are safe to send to the browser. */
+function publicHousehold(h: Record<string, any>) {
+  const { pin_hash, failed_pin_attempts, pin_locked_until, ...rest } = h
+  return rest
 }
 
 export async function getHousehold() {
@@ -115,17 +147,7 @@ export async function getHousehold() {
     .eq('id', householdId)
     .single()
 
-  return data
-}
-
-function setSessionCookie(householdId: string) {
-  cookies().set(SESSION_COOKIE_NAME, householdId, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax',
-    maxAge: SESSION_MAX_AGE,
-    path: '/',
-  })
+  return data ? publicHousehold(data) : null
 }
 
 async function seedHouseholdItems(supabase: ReturnType<typeof createServiceRoleClient>, householdId: string) {

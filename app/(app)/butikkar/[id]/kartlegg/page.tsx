@@ -1,4 +1,4 @@
-import { cookies } from 'next/headers'
+import { requireSession } from '@/lib/session'
 import { notFound } from 'next/navigation'
 import { createServiceRoleClient } from '@/lib/supabase/server'
 import { SESSION_COOKIE_NAME } from '@/lib/constants'
@@ -6,8 +6,7 @@ import { getWalkOrder, canEditSharedMap } from '@/lib/actions/stores'
 import { SectionSorterClient } from './section-sorter-client'
 
 export default async function MappingPage({ params }: { params: { id: string } }) {
-  const cookieStore = cookies()
-  const householdId = cookieStore.get(SESSION_COOKIE_NAME)!.value
+  const householdId = requireSession()
 
   const supabase = createServiceRoleClient()
 

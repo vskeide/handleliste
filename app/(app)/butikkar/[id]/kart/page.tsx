@@ -1,4 +1,4 @@
-import { cookies } from 'next/headers'
+import { requireSession } from '@/lib/session'
 import { notFound } from 'next/navigation'
 import { createServiceRoleClient } from '@/lib/supabase/server'
 import { SESSION_COOKIE_NAME } from '@/lib/constants'
@@ -6,8 +6,7 @@ import { getStoreMap, getWalkOrder, canEditSharedMap } from '@/lib/actions/store
 import { GridMapClient } from './grid-map-client'
 
 export default async function StoreMapPage({ params }: { params: { id: string } }) {
-  const cookieStore = cookies()
-  const householdId = cookieStore.get(SESSION_COOKIE_NAME)!.value
+  const householdId = requireSession()
 
   const supabase = createServiceRoleClient()
 

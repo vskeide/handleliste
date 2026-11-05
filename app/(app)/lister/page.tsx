@@ -1,4 +1,4 @@
-import { cookies } from 'next/headers'
+import { requireSession } from '@/lib/session'
 import Link from 'next/link'
 import { createServiceRoleClient } from '@/lib/supabase/server'
 import { SESSION_COOKIE_NAME } from '@/lib/constants'
@@ -8,8 +8,7 @@ import { Plus, ShoppingCart, Bookmark } from 'lucide-react'
 import { CHAIN_COLORS } from '@/lib/constants'
 
 export default async function ListsPage() {
-  const cookieStore = cookies()
-  const householdId = cookieStore.get(SESSION_COOKIE_NAME)!.value
+  const householdId = requireSession()
 
   const supabase = createServiceRoleClient()
   const { data: lists } = await supabase

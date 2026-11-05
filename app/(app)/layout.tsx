@@ -1,15 +1,8 @@
-import { cookies } from 'next/headers'
-import { redirect } from 'next/navigation'
-import { SESSION_COOKIE_NAME } from '@/lib/constants'
 import { NavBar } from '@/components/nav-bar'
+import { requireSession } from '@/lib/session'
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
-  const cookieStore = cookies()
-  const session = cookieStore.get(SESSION_COOKIE_NAME)?.value
-
-  if (!session) {
-    redirect('/')
-  }
+  requireSession()
 
   return (
     <div className="min-h-screen bg-[#FAFAFA] pb-20">

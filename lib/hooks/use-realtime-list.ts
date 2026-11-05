@@ -1,22 +1,29 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
+import type { RealtimeChannel } from '@supabase/supabase-js'
 import { createClient } from '@/lib/supabase/client'
+import { getListItems } from '@/lib/actions/lists'
 import type { ListItem } from '@/lib/types'
+
+// Live sync without giving the browser table access.
+// The browser can no longer read tables (Row Level Security is on), so:
+//  - list lines are loaded through a server action that checks ownership;
+//  - after every change, the phone that made it sends a content-free "changed" ping
+//    on a Realtime broadcast channel named after the list; other phones on the same
+//    list refetch through the server action;
+//  - as a fallback, the list refetches when the app comes back to the foreground
+//    and every 20 s while visible.
+const POLL_MS = 20_000
 
 export function useRealtimeList(listId: string) {
   const [items, setItems] = useState<ListItem[]>([])
   const [loading, setLoading] = useState(true)
+  const channelRef = useRef<RealtimeChannel | null>(null)
 
   const fetchItems = useCallback(async () => {
-    const supabase = createClient()
-    const { data } = await supabase
-      .from('list_items')
-      .select('*')
-      .eq('list_id', listId)
-      .order('created_at')
-
-    if (data) setItems(data)
+    const data = await getListItems(listId)
+    if (data) setItems(data as ListItem[])
     setLoading(false)
   }, [listId])
 
@@ -25,51 +32,27 @@ export function useRealtimeList(listId: string) {
 
     const supabase = createClient()
     const channel = supabase
-      .channel(`list-${listId}`)
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'list_items',
-          filter: `list_id=eq.${listId}`,
-        },
-        (payload) => {
-          switch (payload.eventType) {
-            case 'INSERT':
-              setItems((prev) => {
-                // Avoid duplicates (if optimistic add already inserted it)
-                if (prev.some((i) => i.id === (payload.new as ListItem).id)) {
-                  return prev.map((i) =>
-                    i.id === (payload.new as ListItem).id ? (payload.new as ListItem) : i
-                  )
-                }
-                return [...prev, payload.new as ListItem]
-              })
-              break
-            case 'UPDATE':
-              setItems((prev) =>
-                prev.map((i) =>
-                  i.id === (payload.new as ListItem).id
-                    ? (payload.new as ListItem)
-                    : i
-                )
-              )
-              break
-            case 'DELETE':
-              setItems((prev) =>
-                prev.filter((i) => i.id !== (payload.old as { id: string }).id)
-              )
-              break
-          }
-        }
-      )
+      .channel(`list:${listId}`, { config: { broadcast: { self: false } } })
+      .on('broadcast', { event: 'changed' }, () => { fetchItems() })
       .subscribe()
+    channelRef.current = channel
+
+    const onVisible = () => { if (document.visibilityState === 'visible') fetchItems() }
+    document.addEventListener('visibilitychange', onVisible)
+    const timer = setInterval(() => { if (document.visibilityState === 'visible') fetchItems() }, POLL_MS)
 
     return () => {
+      document.removeEventListener('visibilitychange', onVisible)
+      clearInterval(timer)
+      channelRef.current = null
       supabase.removeChannel(channel)
     }
   }, [listId, fetchItems])
+
+  /** Tell the other phones on this list to refetch. Call after a write succeeds. */
+  const notifyChanged = useCallback(() => {
+    channelRef.current?.send({ type: 'broadcast', event: 'changed', payload: {} })
+  }, [])
 
   // Optimistic update: toggle an item's checked state immediately
   const optimisticToggle = useCallback((itemId: string, isChecked: boolean) => {
@@ -102,5 +85,14 @@ export function useRealtimeList(listId: string) {
     )
   }, [])
 
-  return { items, loading, refetch: fetchItems, optimisticToggle, optimisticRemove, optimisticUpdateQuantity, optimisticAdd }
+  return {
+    items,
+    loading,
+    refetch: fetchItems,
+    notifyChanged,
+    optimisticToggle,
+    optimisticRemove,
+    optimisticUpdateQuantity,
+    optimisticAdd,
+  }
 }

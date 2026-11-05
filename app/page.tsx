@@ -1,16 +1,12 @@
-import { cookies } from 'next/headers'
 import { redirect } from 'next/navigation'
 import Link from 'next/link'
-import { SESSION_COOKIE_NAME } from '@/lib/constants'
+import { readSession } from '@/lib/session'
 import { t } from '@/lib/i18n'
 import { Button } from '@/components/ui/button'
 import { ShoppingCart } from 'lucide-react'
 
 export default function WelcomePage() {
-  const cookieStore = cookies()
-  const session = cookieStore.get(SESSION_COOKIE_NAME)?.value
-
-  if (session) {
+  if (readSession()) {
     redirect('/lister')
   }
 
