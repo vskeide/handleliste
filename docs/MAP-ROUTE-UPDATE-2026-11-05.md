@@ -1,6 +1,7 @@
 # Relative routes and mobile map editing
 
-Implemented locally, awaiting the user's next production-push approval.
+Released in `1b29be6` on 2026-11-05. A subsequent simplification of mobile map
+editing is in `849f6d9`, included in the user's approved combined release.
 
 ## Route learning
 

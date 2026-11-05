@@ -4,6 +4,36 @@ import { createServiceRoleClient } from '@/lib/supabase/server'
 import { getSession, getHousehold } from './auth'
 import { revalidatePath } from 'next/cache'
 import type { StoreMapBlock } from '@/lib/types'
+import { STORE_CHAIN_LABELS } from '@/lib/constants'
+import { randomUUID } from 'node:crypto'
+
+export async function createStore(input: { name: string; chain: string; city: string; address?: string }) {
+  const householdId = await getSession()
+  if (!householdId) return { error: 'Ikkje innlogga' }
+  const text = (value: unknown, max: number) => typeof value === 'string' && value.trim().length <= max
+    && !/[\u0000-\u001f]/.test(value) ? value.trim() : null
+  const name = text(input?.name, 100), city = text(input?.city, 100)
+  const address = text(input?.address ?? '', 200)
+  if (!name || !city || address === null || typeof input?.chain !== 'string' || !Object.hasOwn(STORE_CHAIN_LABELS, input.chain)) {
+    return { error: 'Fyll inn namn, kjede og stad. Kontroller at felta ikkje er for lange.' }
+  }
+  const db = createServiceRoleClient(), storeId = randomUUID()
+  // Reserve map ownership at creation, before the first map has been saved.
+  const { error } = await db.from('stores').insert({
+    id: storeId, name, chain: input.chain, city, address: address || null,
+    is_mapped: false, mapped_by_household_id: householdId,
+  })
+  if (error) return { error: 'Kunne ikkje opprette butikken. Prøv igjen.' }
+  const { error: linkError } = await db.from('household_stores').insert({ household_id: householdId, store_id: storeId })
+  if (linkError) {
+    // Compensate only for the new row created by this request; existing shops are untouched.
+    const { error: cleanupError } = await db.from('stores').delete().eq('id', storeId).eq('mapped_by_household_id', householdId)
+    if (cleanupError) console.error('Could not clean up unlinked new store', cleanupError.code)
+    return { error: 'Kunne ikkje leggje butikken til husstanden. Prøv igjen.' }
+  }
+  revalidatePath('/butikkar')
+  return { storeId }
+}
 
 export async function getHouseholdStores() {
   const householdId = await getSession()

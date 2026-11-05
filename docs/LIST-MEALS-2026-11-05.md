@@ -1,7 +1,8 @@
 # Dinners attached to a shopping list
 
-Implemented locally; production push awaits approval. This follows the local clear-list
-commit `57228e0`.
+Implemented in `a65afa0`, following clear-list commit `57228e0`. On 2026-11-05 the
+user approved committing and deploying all changes, including side chats. Verify the
+final release SHA in Vercel before treating the deployment as live.
 
 The utensils button in the existing list header opens a native dialog containing the
 dinners added to this list. The overview is closed by default and uses no list space

@@ -7,6 +7,11 @@ export const CHAIN_COLORS: Record<string, { primary: string; lightBg: string }> 
   SPAR: { primary: '#ED1C24', lightBg: '#FDE8E9' },
 }
 
+export const STORE_CHAIN_LABELS: Record<string, string> = {
+  REMA: 'REMA 1000', KIWI: 'KIWI', COOP_EXTRA: 'Coop Extra', COOP_MEGA: 'Coop Mega',
+  BUNNPRIS: 'Bunnpris', SPAR: 'SPAR', ANNA: 'Anna kjede / frittståande',
+}
+
 export const APP_COLORS = {
   background: '#FAFAFA',
   surface: '#FFFFFF',

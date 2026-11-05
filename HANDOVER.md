@@ -4,6 +4,16 @@
 
 This checkpoint supersedes the original status below:
 
+- **Release approval (2026-11-05):** The user explicitly approved committing,
+  pushing and deploying all changes, including the side chats. The release includes
+  clear-list, the hidden dinner overview with source-aware ingredient removal,
+  simplified mobile map editing, and household store creation. Migration
+  `20261105204338_list_meal_sources.sql` is applied and the list/route/meal SQL
+  regression suites pass with rolled-back fixtures. All 62 current tests and
+  TypeScript pass. Production deployment status must be checked against the final
+  pushed SHA; this approval does not imply unverified future work is live.
+  Details and verification boundaries: `docs/LIST-MEALS-2026-11-05.md`.
+
 - **Assistant connector implemented in the side chat:** `/mcp`, OAuth discovery,
   PKCE consent/sign-in, DCR plus ChatGPT/Claude published identities (including signed
   client assertions), expiring/rotating hashed tokens and revocation in
