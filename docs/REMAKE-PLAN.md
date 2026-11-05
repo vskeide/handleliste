@@ -125,6 +125,15 @@ re-adding an item adds to its quantity, category shown in search. Vebjørn added
 - Free-text multi-add and line merging.
 - ~50 starter meals for N people, scaled; recipe side panel; "same as last time".
 
+**Status 2026-11-05: done and live** (`7b11e9a`, `d45780d`, `ffbd6f8`). 474-product catalogue
+(`lib/catalog-data.ts`, proofread), search over own items + catalogue with Bokmål aliases,
+multi-add with amounts (`lib/parse-list.ts`, no AI), merge instead of duplicate lines
+(`lib/list-merge.ts`), 53 starter dinners scaled to the household, meal servings + paste a
+recipe, "Same som sist", frequent-item chips, household as adults + children (child = ½
+portion). Phase 1 leftovers also done: add bar at the bottom, offline outbox. Migration 0003
+run; 0004 (adults/children) pending. No AI parsing yet: the plan's "AI for hard cases" is
+left for phase 4, where the assistant itself does it.
+
 ### Phase 3 — Shops and routes
 - GPS shop detection with "save this shop" and Kassalapp shop lookup.
 - Per-shop route learning (items per household, sections shared); the two view modes.
