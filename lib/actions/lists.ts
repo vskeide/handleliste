@@ -104,6 +104,13 @@ export async function getListItems(listId: string) {
   return error ? null : data || []
 }
 
+export async function getListContents(listId: string) {
+  const household = await getSession()
+  if (!household) return null
+  const { data, error } = await createServiceRoleClient().rpc('get_list_contents', { p_household: household, p_list: listId })
+  return error ? null : data as { lines: import('@/lib/types').ListItem[]; meals: import('@/lib/types').ListMeal[] }
+}
+
 export async function createList(name: string, storeId?: string) {
   const householdId = await getSession()
   if (!householdId) return { error: 'Ikkje innlogga' }

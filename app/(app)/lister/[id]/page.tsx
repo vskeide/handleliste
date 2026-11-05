@@ -28,7 +28,7 @@ export default async function ListDetailPage({ params: pendingParams }: { params
       .from('items')
       .select('id, name, section_id, times_purchased, is_confirmed, check_order_sum, check_count')
       .eq('household_id', householdId),
-    supabase.from('list_items').select('*').eq('list_id', params.id).order('created_at'),
+    supabase.rpc('get_list_contents', { p_household: householdId, p_list: params.id }),
     supabase.from('households').select('*').eq('id', householdId).maybeSingle(),
     getMeals(),
   ])
@@ -69,7 +69,8 @@ export default async function ListDetailPage({ params: pendingParams }: { params
       walkOrder={walkOrder}
       householdStores={storesRes.data || []}
       initialItems={itemsRes.data || []}
-      initialLines={lineRes.data || []}
+      initialLines={lineRes.data?.lines || []}
+      initialListMeals={lineRes.data?.meals || []}
       householdSize={portions(hhRes.data as any)}
       householdLabel={describeHousehold(hhRes.data as any)}
       itemRoutes={itemRoutes}

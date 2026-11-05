@@ -47,6 +47,25 @@ export function addQty(a: string, b: string): string | null {
   return null
 }
 
+/** Subtract a known meal contribution; never guess units for free-form quantities. */
+export function subtractQty(a: string, b: string): string | null {
+  if (a.trim() === b.trim()) return '0'
+  const valid = /^(\d+(?:[.,]\d+)?)(?: (stk|g|kg|ml|dl|L|pakke|porsjon))?$/
+  const ax = a.trim().match(valid), by = b.trim().match(valid)
+  if (!ax || !by) return null
+  const x: Qty = {amount:Number(ax[1].replace(',','.')),unit:(ax[2] ?? 'stk') as Unit}
+  const y: Qty = {amount:Number(by[1].replace(',','.')),unit:(by[2] ?? 'stk') as Unit}
+  let value: number
+  if (x.unit === y.unit) value = x.amount - y.amount
+  else {
+    const bx = BASE[x.unit], by = BASE[y.unit]
+    if (!bx || !by || bx.base !== by.base) return null
+    value = x.amount * bx.factor - y.amount * by.factor
+    return value <= 0 ? '0' : formatQty(fromBase(bx.base, value))
+  }
+  return value <= 0 ? '0' : formatQty({ amount: value, unit: x.unit })
+}
+
 /** Scale for a different number of people, rounded to amounts you can buy. */
 export function scaleQty(q: string, factor: number): string {
   if (!isFinite(factor) || factor <= 0 || Math.abs(factor - 1) < 1e-9) return q

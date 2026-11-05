@@ -4,7 +4,7 @@ import { createServiceRoleClient } from '@/lib/supabase/server'
 import { getSession } from './auth'
 import { revalidatePath } from 'next/cache'
 import { ownsMeal, ownedMealItem, ownsItem, ownsList } from '@/lib/ownership'
-import { mergeIntoList, describeMerge } from '@/lib/list-merge'
+import { describeMerge } from '@/lib/list-merge'
 import { scaleQty, addQty } from '@/lib/quantity'
 import { parseEntry, splitEntries } from '@/lib/parse-list'
 import { resolveName, guessSection, displayName, type KnownItem } from '@/lib/match'
@@ -165,10 +165,13 @@ export async function addMealToList(mealId: string, listId: string, people?: num
   // override of the portions still scales it
   const base = meal.servings ?? (people ? household : null)
   const factor = base && target ? target / base : 1
-  const lines = meal.meal_items.map((mi: any) => ({ item_id: mi.item_id, quantity: scaleQty(mi.quantity, factor) }))
-
-  const result = await mergeIntoList(supabase, listId, lines)
-  if ('error' in result) return result
+  const { data: result, error } = await supabase.rpc('apply_list_operation', {
+    p_household: householdId, p_list: listId, p_operation: randomUUID(), p_payload: {
+      kind:'batch', meal: {id:randomUUID(),mealId:meal.id,name:meal.name,icon:meal.icon,servings:target ?? meal.servings},
+      lines:meal.meal_items.map((mi: any) => ({clientId:randomUUID(),itemId:mi.item_id,quantity:scaleQty(mi.quantity,factor)})),
+    },
+  })
+  if (error || !result) return {error:'Kunne ikkje leggje middagen til lista'}
   return {
     ...result,
     summary: describeMerge(result),

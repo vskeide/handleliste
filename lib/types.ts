@@ -119,6 +119,27 @@ export interface ListItemWithDetails extends ListItem {
   item: Item
 }
 
+export interface ListMealIngredient {
+  item_id: string
+  list_item_id: string | null
+  name: string
+  quantity: string | null
+}
+export interface ListMeal {
+  id: string
+  name: string
+  icon: string
+  servings: number | null
+  ingredients: ListMealIngredient[]
+}
+export interface MealSource {
+  id: string
+  mealId?: string
+  name: string
+  icon: string
+  servings: number | null
+}
+
 export interface GroupedItems {
   sectionId: string
   walkOrder: number

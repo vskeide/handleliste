@@ -17,8 +17,10 @@ import { Badge } from '@/components/ui/badge'
 import { QuantityPickerSheet, formatQuantityDisplay, parseQuantity } from '@/components/quantity-picker-sheet'
 import { NextItemMode, type NextItemEntry } from '@/components/next-item-mode'
 import { ItemName } from '@/components/item-name'
+import { ListMealsSheet } from '@/components/list-meals-sheet'
 import { useOutbox, type OutboxOp } from '@/lib/hooks/use-outbox'
-import { overlayWrites, type BatchLine } from '@/lib/list-outbox'
+import { type BatchLine } from '@/lib/list-outbox'
+import { overlayListContents } from '@/lib/list-meals'
 import { applyListWrite } from '@/lib/actions/list-writes'
 import { searchAll, resolveName, guessSection, displayName, type KnownItem } from '@/lib/match'
 import { parseEntry, splitEntries, isMultiEntry } from '@/lib/parse-list'
@@ -26,7 +28,7 @@ import { scaleQty, addQty } from '@/lib/quantity'
 import type { CatalogProduct } from '@/lib/catalog-data'
 import { STARTER_MEALS, type StarterMeal } from '@/lib/starter-meals'
 import { ArrowLeft, Plus, Search, X, Check, Trash2, Map, Store, RotateCcw, Bookmark, MoreVertical, UtensilsCrossed, Shuffle, ArrowRightLeft, Play, Pencil, CloudOff, History, MapPin, Users } from 'lucide-react'
-import type { Section, WalkOrder, ListItem } from '@/lib/types'
+import type { Section, WalkOrder, ListItem, ListMeal, MealSource } from '@/lib/types'
 
 interface Props {
   list: any
@@ -36,6 +38,7 @@ interface Props {
   initialItems: any[]
   initialMeals: any[]
   initialLines: ListItem[]
+  initialListMeals?: ListMeal[]
   householdSize: number | null   // dinner portions (adults + ½ × children)
   householdLabel: string         // "2 vaksne + 3 born"
   itemRoutes: Record<string, { avg: number; n: number }>     // this household, this shop
@@ -51,9 +54,9 @@ function newId(): string {
       })
 }
 
-export function ListDetailClient({ list, sections, walkOrder, householdStores, initialItems, initialMeals, initialLines, householdSize, householdLabel, itemRoutes, sectionRoutes }: Props) {
+export function ListDetailClient({ list, sections, walkOrder, householdStores, initialItems, initialMeals, initialLines, initialListMeals = [], householdSize, householdLabel, itemRoutes, sectionRoutes }: Props) {
   const router = useRouter()
-  const { items: serverItems, loading, refetch, notifyChanged, acceptWrite } = useRealtimeList(list.id, initialLines)
+  const { items: serverItems, meals: savedListMeals, loading, refetch, notifyChanged, acceptWrite } = useRealtimeList(list.id, initialLines, initialListMeals)
   const outbox = useOutbox(list.id, write => applyListWrite(list.id, write), (_write, result) => {
     acceptWrite(result)
     setItemsMap(prev => {
@@ -64,7 +67,8 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores, i
     })
     notifyChanged()
   }, () => { void refetch(); notifyChanged() })
-  const listItems = overlayWrites(serverItems, outbox.pending, list.id)
+  const { lines: listItems, meals: listMeals } = overlayListContents(serverItems, savedListMeals, outbox.pending, list.id)
+  const [showMeals, setShowMeals] = useState(false)
   const [showPicked, setShowPicked] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
   const busyCopy = outbox.pending.some(w => w.op.kind === 'copy')
@@ -333,7 +337,7 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores, i
       known.push({ id, name, section_id: sectionId })
     }
     setItemsMap((prev) => ({ ...prev, ...newItems }))
-    queueBatch(lines)
+    queueBatch(lines, { id: newId(), name: meal.name, icon: meal.icon, servings: target ?? meal.servings })
   }
 
   function handleAddItem(itemId: string) {
@@ -382,7 +386,7 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores, i
     outbox.enqueue(op)
   }
 
-  function queueBatch(lines: { itemId: string; quantity: string; create?: { name: string; sectionId: string } }[]) {
+  function queueBatch(lines: { itemId: string; quantity: string; create?: { name: string; sectionId: string } }[], meal?: MealSource) {
     if (!lines.length) return
     const quantities = new globalThis.Map(listItems.map(l => [l.item_id, l.is_checked ? null : l.quantity]))
     const batch: BatchLine[] = lines.map(l => {
@@ -395,7 +399,7 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores, i
         ...(l.create ? { create: true, confirmed: true } : {}),
       }
     })
-    send({ kind: 'batch', lines: batch })
+    send({ kind: 'batch', lines: batch, ...(meal ? { meal } : {}) })
   }
 
   function handleCreateAndAdd(sectionId: string) {
@@ -428,7 +432,8 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores, i
     const target = people ?? householdSize
     const base = meal.servings ?? (people ? householdSize : null)
     const factor = target && base ? target / base : 1
-    queueBatch(meal.ingredients.map((ingredient: any) => ({ itemId: ingredient.item_id, quantity: scaleQty(ingredient.quantity, factor) })))
+    queueBatch(meal.ingredients.map((ingredient: any) => ({ itemId: ingredient.item_id, quantity: scaleQty(ingredient.quantity, factor) })),
+      { id: newId(), mealId: meal.id, name: meal.name, icon: meal.icon, servings: target ?? meal.servings ?? null })
   }
 
   /** New dinner named after what was typed; fill it in, then it is added back here. */
@@ -515,12 +520,22 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores, i
 
   function handleClearList() {
     setShowMenu(false)
-    if (!listItems.length || busyCopy) return
+    if ((!listItems.length && !listMeals.length) || busyCopy) return
     if (!confirm('Tømme lista? Alle varene blir fjerna, også dei som er plukka. Sjølve lista blir ståande.')) return
     // Persist every removal together, then reuse the retry-safe online/offline queue.
     // Target this snapshot so another phone's later additions are not removed.
-    outbox.enqueueMany(listItems.map(li => ({ kind: 'remove', listItemId: li.id })))
+    outbox.enqueueMany([
+      ...listItems.map(li => ({ kind: 'remove' as const, listItemId: li.id })),
+      ...listMeals.map(meal => ({ kind: 'mealRemove' as const, mealId: meal.id })),
+    ])
     setShowPicked(false)
+  }
+
+  function handleRemoveMeal(mealId: string, itemId?: string) {
+    const meal = listMeals.find(m => m.id === mealId)
+    if (!meal) return
+    if (!itemId && !confirm(`Fjerne «${meal.name}» og mengdene til denne retten frå lista?`)) return
+    send({kind:'mealRemove',mealId,...(itemId ? {itemId} : {})})
   }
 
   async function handleSaveTemplate() {
@@ -581,6 +596,11 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores, i
             <button onClick={() => searchRef.current?.focus()} className="text-[#64748B]" aria-label="Legg til vare">
               <Plus className="h-5 w-5" />
             </button>
+            <button type="button" onClick={() => setShowMeals(!showMeals)} aria-label={`Middagar på lista (${listMeals.length})`} aria-haspopup="dialog" aria-expanded={showMeals}
+              title="Middagar på lista" className="relative flex h-9 w-9 items-center justify-center rounded text-[#64748B]">
+              <UtensilsCrossed className="h-5 w-5" />
+              {listMeals.length > 0 && <span className="absolute -right-0.5 -top-0.5 rounded-full bg-primary px-1 text-[10px] leading-4 text-white">{listMeals.length}</span>}
+            </button>
             <div className="relative">
               <button onClick={() => setShowMenu(!showMenu)} className="text-[#64748B]" aria-label="Listeval" aria-expanded={showMenu}>
                 <MoreVertical className="h-5 w-5" />
@@ -614,7 +634,7 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores, i
                       Lagre som mal
                     </button>
                   )}
-                  {totalItems > 0 && (
+                  {(totalItems > 0 || listMeals.length > 0) && (
                     <button
                       onClick={handleClearList}
                       disabled={busyCopy}
@@ -711,6 +731,8 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores, i
           </div>
         )}
       </div>
+
+      {showMeals && <ListMealsSheet meals={listMeals} onClose={() => setShowMeals(false)} onRemove={handleRemoveMeal} />}
 
       {outbox.error && (
         <div role="alert" className="mx-4 my-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm">

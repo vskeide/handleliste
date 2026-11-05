@@ -109,7 +109,7 @@ export async function callTool(name: string, input: unknown, connection: { id: s
     return { meals: data }
   }
   if (name === 'get_list') {
-    const { data, error } = await db.from('shopping_lists').select('id, name, is_active, stores(name), list_items(id, quantity, is_checked, items(name))').eq('household_id', household).eq('id', args.list_id).maybeSingle()
+    const { data, error } = await db.from('shopping_lists').select('id, name, is_active, stores(name), list_items(id, quantity, is_checked, items(name)), list_meals(id, name, servings, list_meal_ingredients(item_id, list_item_id, name, quantity))').eq('household_id', household).eq('id', args.list_id).maybeSingle()
     if (error) throw new Error('Read failed')
     if (!data) throw new ConnectorError('not_found', 'List not found in this household')
     return { list: data }

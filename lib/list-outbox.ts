@@ -1,4 +1,4 @@
-import type { ListItem } from './types'
+import type { ListItem, ListMeal, MealSource } from './types'
 
 export interface BatchLine {
   clientId: string; itemId: string; quantity: string
@@ -10,13 +10,14 @@ export type OutboxOp =
   | { kind: 'toggle'; listItemId: string; checked: boolean; record?: boolean; pickedAt?: string }
   | { kind: 'qty'; listItemId: string; quantity: string }
   | { kind: 'remove'; listItemId: string }
-  | { kind: 'batch'; lines: BatchLine[] }
+  | { kind: 'batch'; lines: BatchLine[]; meal?: MealSource }
+  | { kind: 'mealRemove'; mealId: string; itemId?: string }
   | { kind: 'uncheck' }
   | { kind: 'copy' }
 export interface PendingWrite { id: string; op: OutboxOp }
 export interface WriteResult {
   error?: string; aliases?: Record<string, string>
-  lines?: ListItem[]; removed?: string
+  lines?: ListItem[]; removed?: string; removedIds?: string[]; meals?: ListMeal[]
   items?: { id: string; name: string; section_id: string | null; is_confirmed: boolean; times_purchased: number }[]
 }
 type Storage = Pick<globalThis.Storage, 'getItem' | 'setItem' | 'removeItem'>
@@ -25,6 +26,7 @@ function validOperation(op: unknown): op is OutboxOp {
   if (!op || typeof op !== 'object' || !('kind' in op)) return false
   const value = op as Record<string, unknown>
   if (value.kind === 'uncheck' || value.kind === 'copy') return true
+  if (value.kind === 'mealRemove') return typeof value.mealId === 'string' && (value.itemId === undefined || typeof value.itemId === 'string')
   if (value.kind === 'batch') return Array.isArray(value.lines) && value.lines.length <= 100 && value.lines.every(l => l && typeof l.itemId === 'string' && typeof l.clientId === 'string' && typeof l.quantity === 'string')
   if (value.kind === 'add' || value.kind === 'create') return typeof value.itemId === 'string' && typeof value.clientId === 'string'
   if (value.kind === 'remove') return typeof value.listItemId === 'string'
@@ -34,6 +36,7 @@ function validOperation(op: unknown): op is OutboxOp {
 }
 
 export function remapOperation(op: OutboxOp, aliases: Record<string, string>): OutboxOp {
+  if (op.kind === 'mealRemove' && op.itemId) return { ...op, itemId: aliases[op.itemId] ?? op.itemId }
   if ('listItemId' in op) return { ...op, listItemId: aliases[op.listItemId] ?? op.listItemId }
   if (op.kind === 'add') return { ...op, itemId: aliases[op.itemId] ?? op.itemId }
   if (op.kind === 'create') return { ...op, itemId: aliases[op.itemId] ?? op.itemId, clientId: aliases[op.clientId] ?? op.clientId }
