@@ -145,15 +145,19 @@ export async function addMealToList(mealId: string, listId: string, people?: num
   const meal = mealRes.data as any
   if (!meal?.meal_items?.length) return { error: 'Middagen har ingen varer' }
 
-  const target = people ?? portions(hhRes.data as any)
-  const factor = meal.servings && target ? target / meal.servings : 1
+  const household = portions(hhRes.data as any)
+  const target = people ?? household
+  // A meal without "for N" is taken to be written for the household itself, so an
+  // override of the portions still scales it
+  const base = meal.servings ?? (people ? household : null)
+  const factor = base && target ? target / base : 1
   const lines = meal.meal_items.map((mi: any) => ({ item_id: mi.item_id, quantity: scaleQty(mi.quantity, factor) }))
 
   const result = await mergeIntoList(supabase, listId, lines)
   return {
     ...result,
     summary: describeMerge(result),
-    scaledFor: meal.servings && target ? (people ? `${people}` : describeHousehold(hhRes.data as any)) : null,
+    scaledFor: factor !== 1 ? (people ? `${String(people).replace('.', ',')} porsjonar` : describeHousehold(hhRes.data as any)) : null,
   }
 }
 

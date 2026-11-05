@@ -33,9 +33,29 @@ export default async function ListDetailPage({ params }: { params: { id: string 
   if (!list) notFound()
   const sections = sectionsRes.data || []
 
-  const walkOrder = list.store_id
-    ? await getWalkOrder(list.store_id)
-    : sections.map((s: any) => ({ section_id: s.id, walk_order: s.default_sort_order }))
+  // Learned routes for this shop (migration 0005; empty if not run yet)
+  const [walkOrder, itemRouteRes, sectionRouteRes] = await Promise.all([
+    list.store_id
+      ? getWalkOrder(list.store_id)
+      : Promise.resolve(sections.map((s: any) => ({ section_id: s.id, walk_order: s.default_sort_order }))),
+    list.store_id
+      ? supabase.from('item_store_routes').select('item_id, avg_pos, n').eq('household_id', householdId).eq('store_id', list.store_id)
+      : Promise.resolve({ data: [] as any[] }),
+    list.store_id
+      ? supabase.from('section_store_routes').select('section_id, avg_pos, n').eq('store_id', list.store_id)
+      : Promise.resolve({ data: [] as any[] }),
+  ])
+
+  const itemRoutes: Record<string, { avg: number; n: number }> = {}
+  for (const r of (itemRouteRes as any).data || []) itemRoutes[r.item_id] = { avg: r.avg_pos, n: r.n }
+
+  // Section order shared across households: average weighted by how many ticks each has
+  const sectionRoutes: Record<string, { avg: number; n: number }> = {}
+  for (const r of (sectionRouteRes as any).data || []) {
+    const s = sectionRoutes[r.section_id] ?? { avg: 0, n: 0 }
+    const n = s.n + r.n
+    sectionRoutes[r.section_id] = { avg: (s.avg * s.n + r.avg_pos * r.n) / n, n }
+  }
 
   return (
     <ListDetailClient
@@ -47,6 +67,8 @@ export default async function ListDetailPage({ params }: { params: { id: string 
       initialLines={lineRes.data || []}
       householdSize={portions(hhRes.data as any)}
       householdLabel={describeHousehold(hhRes.data as any)}
+      itemRoutes={itemRoutes}
+      sectionRoutes={sectionRoutes}
     />
   )
 }

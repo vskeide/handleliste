@@ -8,6 +8,25 @@ import { mergeIntoList, describeMerge } from '@/lib/list-merge'
 
 const NO_ACCESS = { error: 'Ingen tilgang' }
 
+// Moving average over about the last 8 trips: early trips count fully, later ones
+// shift the average by 1/8, so a rearranged shop is relearnt within a few visits.
+const ROUTE_MEMORY = 8
+
+async function learnRoute(
+  supabase: ReturnType<typeof createServiceRoleClient>,
+  table: 'item_store_routes' | 'section_store_routes',
+  key: Record<string, string>,
+  pos: number,
+) {
+  let q = supabase.from(table).select('avg_pos, n')
+  for (const [k, v] of Object.entries(key)) q = q.eq(k, v)
+  const { data, error } = await q.maybeSingle()
+  if (error) return // table missing (migration 0005 not run): skip quietly
+  const n = (data?.n ?? 0) + 1
+  const avg = data ? data.avg_pos + (pos - data.avg_pos) / Math.min(n, ROUTE_MEMORY) : pos
+  await supabase.from(table).upsert({ ...key, avg_pos: avg, n, updated_at: new Date().toISOString() })
+}
+
 /**
  * Add many lines at once (typed "mjølk, 2 kg potet, 3 egg", a pasted recipe, a starter
  * dinner). The phone has already matched each entry to an existing item or decided to
@@ -191,7 +210,13 @@ export async function addItemToList(listId: string, itemId: string, quantity?: s
   return { listItem: data }
 }
 
-export async function toggleListItem(listItemId: string, isChecked: boolean) {
+/**
+ * Tick or untick a line. Ticking also teaches the app the route: the item's position in
+ * this trip (0 = first, 1 = last) is folded into its per-shop average, and into the
+ * section's. `recordRoute` is false when GPS says the phone is nowhere near a shop
+ * (ticking things off at home must not teach the route).
+ */
+export async function toggleListItem(listItemId: string, isChecked: boolean, recordRoute = true) {
   const householdId = await getSession()
   if (!householdId) return { error: 'Ikkje innlogga' }
 
@@ -204,33 +229,38 @@ export async function toggleListItem(listItemId: string, isChecked: boolean) {
     checked_at: isChecked ? new Date().toISOString() : null,
   }
 
-  // Increment times_purchased and track check order when checking off
   if (isChecked) {
-    {
-      // Count how many items are already checked in this list (= position)
-      const { count } = await supabase
-        .from('list_items')
-        .select('*', { count: 'exact', head: true })
-        .eq('list_id', listItem.list_id)
-        .eq('is_checked', true)
+    const [checkedRes, totalRes, itemRes, listRes] = await Promise.all([
+      supabase.from('list_items').select('*', { count: 'exact', head: true }).eq('list_id', listItem.list_id).eq('is_checked', true),
+      supabase.from('list_items').select('*', { count: 'exact', head: true }).eq('list_id', listItem.list_id),
+      supabase.from('items').select('times_purchased, check_order_sum, check_count, section_id').eq('id', listItem.item_id).single(),
+      supabase.from('shopping_lists').select('store_id').eq('id', listItem.list_id).single(),
+    ])
+    const already = checkedRes.count || 0
+    const total = totalRes.count || 1
+    const item = itemRes.data
 
-      const checkPosition = (count || 0) + 1
-
-      const { data: item } = await supabase
+    if (item) {
+      // Global counters (kept for "most bought" and as a fallback order)
+      await supabase
         .from('items')
-        .select('times_purchased, check_order_sum, check_count')
+        .update({
+          times_purchased: (item.times_purchased || 0) + 1,
+          check_order_sum: (item.check_order_sum || 0) + already + 1,
+          check_count: (item.check_count || 0) + 1,
+        })
         .eq('id', listItem.item_id)
-        .single()
 
-      if (item) {
-        await supabase
-          .from('items')
-          .update({
-            times_purchased: (item.times_purchased || 0) + 1,
-            check_order_sum: (item.check_order_sum || 0) + checkPosition,
-            check_count: (item.check_count || 0) + 1,
-          })
-          .eq('id', listItem.item_id)
+      // Per-shop route, only for lists with a shop and when not ticked off at home
+      const storeId = listRes.data?.store_id
+      if (storeId && recordRoute && total >= 3) {
+        const pos = total > 1 ? already / (total - 1) : 0.5
+        await Promise.all([
+          learnRoute(supabase, 'item_store_routes', { household_id: householdId, item_id: listItem.item_id, store_id: storeId }, pos),
+          item.section_id
+            ? learnRoute(supabase, 'section_store_routes', { household_id: householdId, section_id: item.section_id, store_id: storeId }, pos)
+            : Promise.resolve(),
+        ])
       }
     }
   }

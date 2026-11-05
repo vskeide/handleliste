@@ -1,9 +1,9 @@
 'use client'
 
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { useParams, useRouter } from 'next/navigation'
+import { useParams, useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
-import { getMeal, addMealItem, removeMealItem, updateMealItemQuantity, setMealServings, addRecipeTextToMeal } from '@/lib/actions/meals'
+import { getMeal, addMealItem, removeMealItem, updateMealItemQuantity, setMealServings, addRecipeTextToMeal, addMealToList } from '@/lib/actions/meals'
 import { QuantityPickerSheet, formatQuantityDisplay } from '@/components/quantity-picker-sheet'
 import { searchItems, createItem } from '@/lib/actions/items'
 import { Button } from '@/components/ui/button'
@@ -15,6 +15,9 @@ import type { Section } from '@/lib/types'
 export default function MealDetailPage() {
   const { id } = useParams<{ id: string }>()
   const router = useRouter()
+  // Set when the dinner was created from a shopping list's add field
+  const toList = useSearchParams().get('tilListe')
+  const [addingToList, setAddingToList] = useState(false)
   const [meal, setMeal] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const [showSearch, setShowSearch] = useState(false)
@@ -84,6 +87,14 @@ export default function MealDetailPage() {
     setTimeout(() => searchRef.current?.focus(), 50)
   }
 
+  async function handleAddToList() {
+    if (!toList) return
+    setAddingToList(true)
+    const r: any = await addMealToList(id, toList)
+    if (r?.error) { setAddingToList(false); setPasteNote(r.error); return }
+    router.push(`/lister/${toList}`)
+  }
+
   async function handlePaste() {
     setPasting(true)
     const r: any = await addRecipeTextToMeal(id, pasteText)
@@ -138,7 +149,7 @@ export default function MealDetailPage() {
       <div className="sticky top-0 z-40 bg-white border-b px-4 py-3">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3 min-w-0">
-            <Link href="/middagar" className="text-[#64748B] hover:text-[#0F172A] flex-shrink-0">
+            <Link href={toList ? `/lister/${toList}` : '/middagar'} className="text-[#64748B] hover:text-[#0F172A] flex-shrink-0">
               <ArrowLeft className="h-5 w-5" />
             </Link>
             <span className="text-xl">{meal.icon}</span>
@@ -336,12 +347,29 @@ export default function MealDetailPage() {
         ) : null
       })()}
 
-      {/* FAB */}
-      <div className="fixed bottom-20 right-4 z-30">
-        <Button onClick={() => setShowSearch(true)} className="rounded-full h-14 w-14 shadow-lg" size="icon">
-          <Plus className="h-6 w-6" />
-        </Button>
-      </div>
+      {/* Opened from a shopping list ("Lag middag «…»"): finish by putting it on that list */}
+      {toList ? (
+        <div className="fixed bottom-20 left-0 right-0 z-30">
+          <div className="mx-auto max-w-lg px-4 flex gap-2">
+            <Button
+              onClick={handleAddToList}
+              disabled={addingToList || !meal.meal_items?.length}
+              className="flex-1 h-12 shadow-lg"
+            >
+              {addingToList ? 'Legg til…' : `Legg ${meal.meal_items?.length || 0} varer i lista`}
+            </Button>
+            <Button onClick={() => setShowSearch(true)} variant="outline" className="h-12 w-12 bg-white shadow-lg" size="icon" aria-label="Legg til ingrediens">
+              <Plus className="h-5 w-5" />
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <div className="fixed bottom-20 right-4 z-30">
+          <Button onClick={() => setShowSearch(true)} className="rounded-full h-14 w-14 shadow-lg" size="icon">
+            <Plus className="h-6 w-6" />
+          </Button>
+        </div>
+      )}
     </div>
   )
 }

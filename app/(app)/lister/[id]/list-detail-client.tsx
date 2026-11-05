@@ -1,6 +1,8 @@
 'use client'
 
-import { useState, useCallback, useRef, useEffect } from 'react'
+import { useState, useCallback, useRef, useEffect, useMemo } from 'react'
+import { useNearbyStore, type StorePoint } from '@/lib/hooks/use-nearby-store'
+import { useKeyboardViewport } from '@/lib/hooks/use-keyboard-viewport'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { t } from '@/lib/i18n'
@@ -9,7 +11,7 @@ import { useRealtimeList } from '@/lib/hooks/use-realtime-list'
 import { toggleListItem, addItemToList, removeListItem, uncheckAllItems, updateListItemQuantity, copyFromPreviousList, addLinesToList } from '@/lib/actions/lists'
 import { updateList, deleteList, saveAsTemplate } from '@/lib/actions/lists'
 import { createItemAndAddToList, getHouseholdItems, updateItemSection } from '@/lib/actions/items'
-import { getMeals, addMealToList } from '@/lib/actions/meals'
+import { getMeals, addMealToList, createMeal } from '@/lib/actions/meals'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
@@ -22,7 +24,7 @@ import { parseEntry, splitEntries, isMultiEntry } from '@/lib/parse-list'
 import { scaleQty } from '@/lib/quantity'
 import type { CatalogProduct } from '@/lib/catalog-data'
 import { STARTER_MEALS, type StarterMeal } from '@/lib/starter-meals'
-import { ArrowLeft, Plus, Search, X, Check, Trash2, Map, Store, RotateCcw, Bookmark, MoreVertical, UtensilsCrossed, Shuffle, ArrowRightLeft, Play, Pencil, CloudOff, History } from 'lucide-react'
+import { ArrowLeft, Plus, Search, X, Check, Trash2, Map, Store, RotateCcw, Bookmark, MoreVertical, UtensilsCrossed, Shuffle, ArrowRightLeft, Play, Pencil, CloudOff, History, MapPin, Users } from 'lucide-react'
 import type { Section, WalkOrder, ListItem } from '@/lib/types'
 
 interface Props {
@@ -34,6 +36,8 @@ interface Props {
   initialLines: ListItem[]
   householdSize: number | null   // dinner portions (adults + ½ × children)
   householdLabel: string         // "2 vaksne + 3 born"
+  itemRoutes: Record<string, { avg: number; n: number }>     // this household, this shop
+  sectionRoutes: Record<string, { avg: number; n: number }>  // all households, this shop
 }
 
 function newId(): string {
@@ -62,11 +66,13 @@ function searchLocal(all: any[], query: string, limit = 20) {
   return scored.slice(0, limit).map((s) => s.item)
 }
 
-export function ListDetailClient({ list, sections, walkOrder, householdStores, initialItems, initialLines, householdSize, householdLabel }: Props) {
+export function ListDetailClient({ list, sections, walkOrder, householdStores, initialItems, initialLines, householdSize, householdLabel, itemRoutes, sectionRoutes }: Props) {
   const router = useRouter()
   const { items: listItems, loading, refetch, notifyChanged, optimisticToggle, optimisticRemove, optimisticUpdateQuantity, optimisticAdd, confirmAdd, rollbackAdd } = useRealtimeList(list.id, initialLines)
   const [notice, setNotice] = useState<string | null>(null)
   const [busyCopy, setBusyCopy] = useState(false)
+  const keyboardArea = useKeyboardViewport()
+  const [portionPicker, setPortionPicker] = useState<{ mealId: string; name: string; icon: string; portions: number } | null>(null)
   const [inputFocused, setInputFocused] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [searchResults, setSearchResults] = useState<any[]>([])
@@ -81,7 +87,21 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores, i
   const [meals, setMeals] = useState<any[]>([])
   const [mealResults, setMealResults] = useState<any[]>([])
   const [movingItemId, setMovingItemId] = useState<string | null>(null)
-  const [frihandelMode, setFrihandelMode] = useState(false)
+  // View mode starts automatic: route order once this shop's route is learned for most
+  // of the list, by section before that. Tapping the toggle overrides it.
+  const learnedShare = (() => {
+    const open = initialLines.filter((l) => !l.is_checked)
+    if (open.length === 0) return 0
+    return open.filter((l) => (itemRoutes[l.item_id]?.n ?? 0) >= 2).length / open.length
+  })()
+  const [frihandelMode, setFrihandelModeRaw] = useState(learnedShare >= 0.5)
+  const modeChosenByUser = useRef(false)
+  const setFrihandelMode = (v: boolean) => { modeChosenByUser.current = true; setFrihandelModeRaw(v) }
+  useEffect(() => {
+    // Shop changed (GPS or by hand): re-pick the automatic mode unless the user chose
+    if (!modeChosenByUser.current) setFrihandelModeRaw(learnedShare >= 0.5)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [list.store_id])
   const [editingQuantityId, setEditingQuantityId] = useState<string | null>(null)
   const [showNextMode, setShowNextMode] = useState(false)
   const searchRef = useRef<HTMLInputElement>(null)
@@ -132,20 +152,44 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores, i
     groupedItems[sectionId].push(li)
   }
 
+  // ── Order in the shop ─────────────────────────────────────────────────────────
+  // Everything is a position 0..1 through the trip, best source first:
+  //   item route in this shop (learned from your ticks)
+  //   → section route in this shop (learned, shared between households)
+  //   → the shop's section layout (set by hand under Butikkar)
+  //   → your old global tick order
+  const maxWalk = Math.max(1, ...walkOrder.map((w) => w.walk_order))
+  const sectionPos = (sectionId: string | null | undefined): number => {
+    if (!sectionId) return 1
+    const learned = sectionRoutes[sectionId]
+    if (learned && learned.n >= 2) return learned.avg
+    const w = walkOrderMap[sectionId]
+    return w != null ? w / maxWalk : 1
+  }
+  const itemPos = (li: { item_id: string }): number => {
+    const r = itemRoutes[li.item_id]
+    if (r) return r.avg
+    const it = itemsMap[li.item_id]
+    return sectionPos(it?.section_id) + 0.0001 // just after learned items of the section
+  }
+  const inSectionPos = (li: { item_id: string }): number => {
+    const r = itemRoutes[li.item_id]
+    if (r) return r.avg
+    const it = itemsMap[li.item_id]
+    return it?.check_count > 0 ? 2 + it.check_order_sum / it.check_count / 1000 : 3
+  }
+  const byName = (a: { item_id: string }, b: { item_id: string }) =>
+    (itemsMap[a.item_id]?.name || '').localeCompare(itemsMap[b.item_id]?.name || '', 'nn')
+  const byRoute = (a: { item_id: string }, b: { item_id: string }) => itemPos(a) - itemPos(b) || byName(a, b)
+  const byRouteInSection = (a: { item_id: string }, b: { item_id: string }) => inSectionPos(a) - inSectionPos(b) || byName(a, b)
+
   const sortedGroups = Object.entries(groupedItems)
-    .sort(([a], [b]) => (walkOrderMap[a] ?? 999) - (walkOrderMap[b] ?? 999))
+    .sort(([a], [b]) => sectionPos(a === 'unknown' ? null : a) - sectionPos(b === 'unknown' ? null : b))
 
   // Walking order for "next item" mode: same order the current view shows
-  const learnedPos = (li: { item_id: string }) => {
-    const it = itemsMap[li.item_id]
-    return it?.check_count > 0 ? it.check_order_sum / it.check_count : 999
-  }
-  const byLearned = (a: { item_id: string }, b: { item_id: string }) =>
-    learnedPos(a) - learnedPos(b) ||
-    (itemsMap[a.item_id]?.name || '').localeCompare(itemsMap[b.item_id]?.name || '', 'nn')
   const routeItems = frihandelMode
-    ? [...uncheckedItems].sort(byLearned)
-    : sortedGroups.flatMap(([, group]) => [...group].sort(byLearned))
+    ? [...uncheckedItems].sort(byRoute)
+    : sortedGroups.flatMap(([, group]) => [...group].sort(byRouteInSection))
   const nextModeEntries: NextItemEntry[] = routeItems
     .filter((li) => itemsMap[li.item_id])
     .map((li) => {
@@ -264,8 +308,9 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores, i
   }
 
   /** A starter dinner: scale to the household and add, creating items as needed. */
-  async function handleAddStarter(meal: StarterMeal) {
-    const factor = householdSize && meal.servings ? householdSize / meal.servings : 1
+  async function handleAddStarter(meal: StarterMeal, people?: number) {
+    const target = people ?? householdSize
+    const factor = target && meal.servings ? target / meal.servings : 1
     resetSearch()
     const known = Object.values(itemsMap) as KnownItem[]
     const lines: { itemId: string; quantity: string; create?: { name: string; sectionId: string } }[] = []
@@ -287,7 +332,7 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores, i
       if (r?.error) { setNotice(r.error); return }
       await refetch()
       notifyChanged()
-      const forWhom = factor !== 1 && householdLabel ? ` (for ${householdLabel})` : ''
+      const forWhom = factor === 1 ? '' : people ? ` (${people} porsjonar)` : householdLabel ? ` (for ${householdLabel})` : ''
       setNotice(`${meal.icon} ${meal.name}${forWhom}: ${r.summary}`)
     } catch {
       setNotice('Ingen nett – prøv igjen når du er på nett')
@@ -343,7 +388,7 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores, i
     switch (op.kind) {
       case 'add': return addItemToList(list.id, op.itemId, op.quantity, op.clientId)
       case 'create': return createItemAndAddToList(list.id, op.name, op.sectionId, op.itemId, op.clientId, op.quantity, op.confirmed)
-      case 'toggle': return toggleListItem(op.listItemId, op.checked)
+      case 'toggle': return toggleListItem(op.listItemId, op.checked, op.record ?? true)
       case 'qty': return updateListItemQuantity(op.listItemId, op.quantity)
       case 'remove': return removeListItem(op.listItemId)
     }
@@ -412,20 +457,30 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores, i
     send({ kind: 'create', clientId, itemId, name, sectionId })
   }
 
-  async function handleAddMeal(mealId: string) {
+  async function handleAddMeal(mealId: string, people?: number) {
+    setPortionPicker(null)
     if (mealId.startsWith('starter:')) {
       const starter = mealResults.find((m: any) => m.id === mealId)?.starter as StarterMeal | undefined
-      if (starter) await handleAddStarter(starter)
+      if (starter) await handleAddStarter(starter, people)
       return
     }
     const meal = meals.find((m) => m.id === mealId)
     resetSearch()
-    const r: any = await addMealToList(mealId, list.id)
+    const r: any = await addMealToList(mealId, list.id, people)
     if (r?.error) { setNotice(r.error); return }
     await refetch()
     notifyChanged()
     const scaled = r?.scaledFor ? ` (for ${r.scaledFor})` : ''
     setNotice(`${meal?.icon ?? ''} ${meal?.name ?? 'Middag'}${scaled}: ${r?.summary ?? 'lagt til'}`)
+  }
+
+  /** New dinner named after what was typed; fill it in, then it is added back here. */
+  async function handleCreateMealFromSearch() {
+    const name = displayName(searchQuery.trim())
+    if (!name) return
+    const r: any = await createMeal(name, '🍽️')
+    if (r?.meal) router.push(`/middagar/${r.meal.id}?tilListe=${list.id}`)
+    else setNotice(r?.error || 'Kunne ikkje lage middag')
   }
 
   /** "Same as last time": copy the previous list's lines into this one. */
@@ -461,7 +516,8 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores, i
 
   function handleToggle(listItemId: string, currentChecked: boolean) {
     optimisticToggle(listItemId, !currentChecked)
-    send({ kind: 'toggle', listItemId, checked: !currentChecked })
+    // Don't let ticks made far from any shop (at home) teach the route
+    send({ kind: 'toggle', listItemId, checked: !currentChecked, record: geo.status !== 'away' })
   }
 
   function handleQuantityUpdate(listItemId: string, quantity: string) {
@@ -475,11 +531,33 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores, i
     send({ kind: 'remove', listItemId })
   }
 
-  async function handleStoreChange(storeId: string) {
-    await updateList(list.id, { store_id: storeId })
+  async function handleStoreChange(storeId: string, auto = false) {
+    if (!auto) storeChosenByHand.current = true
     setShowStoreSelector(false)
-    router.refresh()
+    if (storeId === list.store_id) return
+    await updateList(list.id, { store_id: storeId })
+    router.refresh() // reloads this shop's layout and learned route
   }
+
+  // ── Which shop am I in? ───────────────────────────────────────────────────────
+  const storePoints = useMemo(
+    () => householdStores.map((hs: any) => hs.stores).filter(Boolean) as StorePoint[],
+    [householdStores],
+  )
+  const { geo, locate } = useNearbyStore(storePoints)
+  const storeChosenByHand = useRef(false)
+  const storeName = (id: string) => storePoints.find((s) => s.id === id)?.name ?? 'butikken'
+
+  useEffect(() => {
+    if (geo.status === 'at' && geo.storeId !== list.store_id && !storeChosenByHand.current) {
+      handleStoreChange(geo.storeId, true)
+      setNotice(`📍 ${storeName(geo.storeId)} – sortert etter ruta di der`)
+    } else if (geo.status === 'between') {
+      setShowStoreSelector(true)
+      setNotice('📍 Kva butikk er du i?')
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [geo])
 
   async function handleUncheckAll() {
     await uncheckAllItems(list.id)
@@ -623,6 +701,24 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores, i
           >
             {list.stores?.name || t('lists.no_store')} · {t('list.switch_store')}
           </button>
+          {/* 📍 finds the shop you're in. Green: in a known shop. Grey: not asked yet,
+              or far away (ticks at home don't teach the route). */}
+          <button
+            onClick={() => { storeChosenByHand.current = false; locate() }}
+            className={`flex items-center gap-0.5 text-xs rounded-full px-1.5 py-0.5 ${
+              geo.status === 'at' ? 'text-[#059669] bg-[#D1FAE5]' : geo.status === 'denied' ? 'text-red-500' : 'text-[#64748B] bg-[#F1F5F9]'
+            }`}
+            title={
+              geo.status === 'at' ? `Du er i ${storeName(geo.storeId)}`
+              : geo.status === 'away' ? 'Ikkje i nærleiken av ein butikk'
+              : geo.status === 'denied' ? 'Posisjon er ikkje tillaten i nettlesaren'
+              : 'Finn butikken eg er i'
+            }
+            aria-label="Finn butikken eg er i"
+          >
+            <MapPin className={`h-3.5 w-3.5 ${geo.status === 'locating' ? 'animate-pulse' : ''}`} />
+            {geo.status === 'away' && <span>heime?</span>}
+          </button>
           {outbox.waiting > 0 && (
             <span
               className="flex items-center gap-1 text-[11px] font-medium text-[#B45309] bg-[#FEF3C7] rounded-full px-2 py-0.5"
@@ -672,10 +768,18 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores, i
 
       {/* Add bar: always visible, fixed just above the bottom navigation, with
           results opening upwards so the thumb never has to reach the top */}
-      <div className="fixed left-0 right-0 bottom-[65px] z-40 pointer-events-none">
+      {/* With the keyboard up, pin the bar to the bottom of the visible area (just above
+          the keyboard) and let the results use only the height that is actually visible */}
+      <div
+        className={`fixed left-0 right-0 z-40 pointer-events-none ${keyboardArea ? 'pb-1' : 'bottom-[65px]'}`}
+        style={keyboardArea ? { top: keyboardArea.top + keyboardArea.height, transform: 'translateY(-100%)' } : undefined}
+      >
         <div className="mx-auto max-w-lg px-3 pointer-events-auto">
           {(searchQuery.length > 0 || showSectionPicker || (inputFocused && frequentItems.length > 0 && listItems.length > 0)) && (
-          <div className="mb-1 max-h-[45vh] overflow-y-auto rounded-xl border bg-white px-3 py-2 shadow-lg">
+          <div
+            className="mb-1 max-h-[45vh] overflow-y-auto overscroll-contain rounded-xl border bg-white px-3 py-2 shadow-lg"
+            style={keyboardArea ? { maxHeight: Math.max(120, keyboardArea.height - 72) } : undefined}
+          >
 
           {/* Empty field: most-bought items as one-tap chips (mouse-down keeps the keyboard up) */}
           {!searchQuery && !showSectionPicker && (
@@ -699,18 +803,30 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores, i
               {mealResults.map((meal: any) => {
                 const count = meal.meal_items?.[0]?.count || 0
                 return (
-                  <button
-                    key={`meal-${meal.id}`}
-                    onClick={() => handleAddMeal(meal.id)}
-                    className="flex items-center gap-2 w-full rounded-lg p-2 text-left hover:bg-[#FFF7ED] bg-[#FFFBF5] border border-[#FED7AA] transition-colors"
-                  >
-                    <span className="text-sm">{meal.icon}</span>
-                    <span className="text-sm font-medium">{meal.name}</span>
-                    <Badge className="text-[10px] bg-[#FED7AA] text-[#C2410C] border-0 ml-auto">
-                      <UtensilsCrossed className="h-2.5 w-2.5 mr-0.5 inline" />
-                      {count} varer
-                    </Badge>
-                  </button>
+                  <div key={`meal-${meal.id}`} className="flex items-stretch gap-1">
+                    {/* Tap: add, scaled to the household. 👥: pick another number of portions first */}
+                    <button
+                      onClick={() => handleAddMeal(meal.id)}
+                      className="flex flex-1 min-w-0 items-center gap-2 rounded-lg p-2 text-left hover:bg-[#FFF7ED] bg-[#FFFBF5] border border-[#FED7AA] transition-colors"
+                    >
+                      <span className="text-sm">{meal.icon}</span>
+                      <span className="text-sm font-medium truncate">{meal.name}</span>
+                      {meal.starter && <span className="text-[10px] text-[#C2410C]">forslag</span>}
+                      <Badge className="text-[10px] bg-[#FED7AA] text-[#C2410C] border-0 ml-auto flex-shrink-0">
+                        <UtensilsCrossed className="h-2.5 w-2.5 mr-0.5 inline" />
+                        {count} varer
+                      </Badge>
+                    </button>
+                    <button
+                      onClick={() => setPortionPicker({ mealId: meal.id, name: meal.name, icon: meal.icon, portions: householdSize ?? 4 })}
+                      className="flex items-center gap-0.5 rounded-lg border border-[#FED7AA] bg-white px-2 text-[11px] text-[#C2410C]"
+                      aria-label={`Vel tal porsjonar for ${meal.name}`}
+                      title="Vel tal porsjonar"
+                    >
+                      <Users className="h-3.5 w-3.5" />
+                      {householdSize ?? ''}
+                    </button>
+                  </div>
                 )
               })}
             </div>
@@ -785,6 +901,17 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores, i
               <span className="text-sm font-medium">
                 {t('list.create_new', 'nn', { name: searchQuery })}
               </span>
+            </button>
+          )}
+
+          {/* …or make it a new dinner: opens the dinner to fill in, then back here */}
+          {searchQuery.trim().length > 1 && !isMultiEntry(searchQuery) && (
+            <button
+              onClick={handleCreateMealFromSearch}
+              className="flex items-center gap-2 w-full rounded-lg p-2 text-left hover:bg-[#FFF7ED] text-[#C2410C]"
+            >
+              <UtensilsCrossed className="h-4 w-4" />
+              <span className="text-sm font-medium">Lag middag «{displayName(searchQuery.trim())}»</span>
             </button>
           )}
 
@@ -919,14 +1046,7 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores, i
           /* ── Frihandel mode: flat list sorted by smart order ── */
           <>
             {(() => {
-              const smartSorted = [...uncheckedItems].sort((a, b) => {
-                const itemA = itemsMap[a.item_id]
-                const itemB = itemsMap[b.item_id]
-                const avgA = itemA?.check_count > 0 ? itemA.check_order_sum / itemA.check_count : 999
-                const avgB = itemB?.check_count > 0 ? itemB.check_order_sum / itemB.check_count : 999
-                if (avgA !== avgB) return avgA - avgB
-                return (itemA?.name || '').localeCompare(itemB?.name || '', 'nn')
-              })
+              const smartSorted = [...uncheckedItems].sort(byRoute)
               return (
                 <div className="space-y-1">
                   {smartSorted.map((li) => {
@@ -1020,15 +1140,8 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores, i
               const walkNum = walkOrderMap[sectionId]
               if (!section) return null
 
-              // Smart sort: items checked earlier on average appear first
-              const sortedItems = [...sectionItems].sort((a, b) => {
-                const itemA = itemsMap[a.item_id]
-                const itemB = itemsMap[b.item_id]
-                const avgA = itemA?.check_count > 0 ? itemA.check_order_sum / itemA.check_count : 999
-                const avgB = itemB?.check_count > 0 ? itemB.check_order_sum / itemB.check_count : 999
-                if (avgA !== avgB) return avgA - avgB
-                return (itemA?.name || '').localeCompare(itemB?.name || '', 'nn')
-              })
+              // Within a section: your route in this shop, then your old tick order
+              const sortedItems = [...sectionItems].sort(byRouteInSection)
 
               return (
                 <div key={sectionId} className="mb-4">
@@ -1150,6 +1263,35 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores, i
           />
         ) : null
       })()}
+
+      {/* Portions override for one meal */}
+      {portionPicker && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/30" onClick={() => setPortionPicker(null)}>
+          <div className="w-full max-w-lg rounded-t-2xl bg-white p-5 pb-8 space-y-4" onClick={(e) => e.stopPropagation()}>
+            <p className="text-sm font-bold text-[#0F172A]">{portionPicker.icon} {portionPicker.name}</p>
+            <div className="flex items-center justify-center gap-6">
+              <button
+                onClick={() => setPortionPicker((p) => p && { ...p, portions: Math.max(0.5, p.portions - 0.5) })}
+                className="h-12 w-12 rounded-full border text-2xl text-[#64748B]"
+                aria-label="Færre porsjonar"
+              >−</button>
+              <div className="text-center">
+                <p className="text-3xl font-bold text-[#0F172A]">{String(portionPicker.portions).replace('.', ',')}</p>
+                <p className="text-xs text-[#94A3B8]">porsjonar</p>
+              </div>
+              <button
+                onClick={() => setPortionPicker((p) => p && { ...p, portions: Math.min(40, p.portions + 0.5) })}
+                className="h-12 w-12 rounded-full border text-2xl text-[#64748B]"
+                aria-label="Fleire porsjonar"
+              >+</button>
+            </div>
+            <p className="text-center text-xs text-[#94A3B8]">Husstanden: {householdLabel || 'ukjend'} = {String(householdSize ?? '–').replace('.', ',')} porsjonar</p>
+            <Button className="w-full h-12" onClick={() => handleAddMeal(portionPicker.mealId, portionPicker.portions)}>
+              Legg i lista
+            </Button>
+          </div>
+        </div>
+      )}
 
       {notice && (
         <div className="fixed bottom-[136px] left-1/2 -translate-x-1/2 z-50 rounded-lg bg-[#0F172A] text-white text-sm px-4 py-2 shadow-lg">

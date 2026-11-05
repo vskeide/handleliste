@@ -21,6 +21,9 @@ export const viewport: Viewport = {
   width: 'device-width',
   initialScale: 1,
   maximumScale: 1,
+  // Android Chrome: shrink the page when the keyboard opens, so bottom-fixed bars
+  // move up with it (iOS is handled by useKeyboardViewport)
+  interactiveWidget: 'resizes-content',
 }
 
 export default function RootLayout({
