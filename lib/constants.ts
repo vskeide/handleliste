@@ -20,13 +20,14 @@ export const APP_COLORS = {
   warningBg: '#FEF3C7',
 } as const
 
+// Doubled 2026-11-05 for finer shop layouts
 export const GRID_DEFAULTS = {
-  cols: 12,
-  rows: 14,
-  minCols: 8,
-  maxCols: 16,
-  minRows: 8,
-  maxRows: 20,
+  cols: 24,
+  rows: 28,
+  minCols: 16,
+  maxCols: 32,
+  minRows: 16,
+  maxRows: 40,
 } as const
 
 export const SESSION_COOKIE_NAME = 'handleliste_session'

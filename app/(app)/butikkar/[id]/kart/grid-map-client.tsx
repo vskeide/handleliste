@@ -17,8 +17,11 @@ interface Props {
   canEdit: boolean
 }
 
-const DEFAULT_GRID_COLS = 8
-const DEFAULT_GRID_ROWS = 10
+// Doubled 2026-11-05 (was 8×10) for finer shop layouts. Existing maps keep their own size.
+const DEFAULT_GRID_COLS = 16
+const DEFAULT_GRID_ROWS = 20
+// Smallest grab zone for the resize edges, so they stay usable with small cells on a phone
+const MIN_EDGE_PX = 10
 
 type DragMode = 'move' | 'resize-right' | 'resize-bottom' | null
 
@@ -62,6 +65,16 @@ export function GridMapClient({ storeId, storeName, sections, storeMap, walkOrde
       }
     }
     return true
+  }
+
+  /** Grid cell under a screen point, or null if outside the grid. */
+  function cellAt(clientX: number, clientY: number): { col: number; row: number } | null {
+    if (!gridRef.current) return null
+    const rect = gridRef.current.getBoundingClientRect()
+    const col = Math.floor(((clientX - rect.left) / rect.width) * gridCols)
+    const row = Math.floor(((clientY - rect.top) / rect.height) * gridRows)
+    if (col < 0 || row < 0 || col >= gridCols || row >= gridRows) return null
+    return { col, row }
   }
 
   function handleCellPointerDown(col: number, row: number) {
@@ -156,8 +169,8 @@ export function GridMapClient({ storeId, storeName, sections, storeMap, walkOrde
     const relY = e.clientY - tileTop
 
     // Edge threshold: 30% of a single cell width/height (from the edge)
-    const edgeThresholdX = cellW * 0.35
-    const edgeThresholdY = cellH * 0.35
+    const edgeThresholdX = Math.min(tileWidth / 3, Math.max(cellW * 0.35, MIN_EDGE_PX))
+    const edgeThresholdY = Math.min(tileHeight / 3, Math.max(cellH * 0.35, MIN_EDGE_PX))
 
     const nearRight = relX > tileWidth - edgeThresholdX
     const nearBottom = relY > tileHeight - edgeThresholdY
@@ -413,26 +426,23 @@ export function GridMapClient({ storeId, storeName, sections, storeMap, walkOrde
           ))}
         </svg>
 
-        {/* Cell interaction layer */}
+        {/* Cell interaction layer: one element that works out the cell from the pointer
+            position, instead of one element per cell (cheap at any grid size) */}
         {mode === 'edit' && (
-          <div className="absolute inset-0" style={{ zIndex: 2 }}>
-            {Array.from({ length: gridRows }, (_, row) =>
-              Array.from({ length: gridCols }, (_, col) => (
-                <div
-                  key={`cell-${col}-${row}`}
-                  className="absolute cursor-crosshair hover:bg-primary/5"
-                  style={{
-                    left: `${(col / gridCols) * 100}%`,
-                    top: `${(row / gridRows) * 100}%`,
-                    width: `${(1 / gridCols) * 100}%`,
-                    height: `${(1 / gridRows) * 100}%`,
-                  }}
-                  onPointerDown={(e) => { e.preventDefault(); handleCellPointerDown(col, row) }}
-                  onPointerEnter={() => handleCellPointerEnter(col, row)}
-                />
-              ))
-            )}
-          </div>
+          <div
+            className="absolute inset-0 cursor-crosshair"
+            style={{ zIndex: 2 }}
+            onPointerDown={(e) => {
+              e.preventDefault()
+              const c = cellAt(e.clientX, e.clientY)
+              if (c) handleCellPointerDown(c.col, c.row)
+            }}
+            onPointerMove={(e) => {
+              if (!selectingFrom) return
+              const c = cellAt(e.clientX, e.clientY)
+              if (c) handleCellPointerEnter(c.col, c.row)
+            }}
+          />
         )}
 
         {/* Selection rectangle overlay */}
