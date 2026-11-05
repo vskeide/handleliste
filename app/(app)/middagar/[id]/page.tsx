@@ -3,13 +3,13 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { getMeal, addMealItem, removeMealItem, updateMealItemQuantity } from '@/lib/actions/meals'
+import { getMeal, addMealItem, removeMealItem, updateMealItemQuantity, setMealServings, addRecipeTextToMeal } from '@/lib/actions/meals'
 import { QuantityPickerSheet, formatQuantityDisplay } from '@/components/quantity-picker-sheet'
 import { searchItems, createItem } from '@/lib/actions/items'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
-import { ArrowLeft, Plus, Search, X } from 'lucide-react'
+import { ArrowLeft, Plus, Search, X, ClipboardPaste } from 'lucide-react'
 import type { Section } from '@/lib/types'
 
 export default function MealDetailPage() {
@@ -25,6 +25,11 @@ export default function MealDetailPage() {
   const [showSectionPicker, setShowSectionPicker] = useState(false)
   const [newItemName, setNewItemName] = useState('')
   const [editingMealItemId, setEditingMealItemId] = useState<string | null>(null)
+  const [servingsError, setServingsError] = useState<string | null>(null)
+  const [showPaste, setShowPaste] = useState(false)
+  const [pasteText, setPasteText] = useState('')
+  const [pasting, setPasting] = useState(false)
+  const [pasteNote, setPasteNote] = useState<string | null>(null)
   const searchRef = useRef<HTMLInputElement>(null)
 
   async function loadMeal() {
@@ -79,6 +84,32 @@ export default function MealDetailPage() {
     setTimeout(() => searchRef.current?.focus(), 50)
   }
 
+  async function handlePaste() {
+    setPasting(true)
+    const r: any = await addRecipeTextToMeal(id, pasteText)
+    setPasting(false)
+    if (r?.error) { setPasteNote(r.error); return }
+    setPasteText('')
+    setShowPaste(false)
+    const parts = [`${r.added} lagt til`]
+    if (r.updated) parts.push(`${r.updated} auka`)
+    if (r.unknown?.length) parts.push(`nye varer: ${r.unknown.join(', ')} – sjekk kategori i handlelista`)
+    setPasteNote(parts.join(' · '))
+    await loadMeal()
+  }
+
+  async function changeServings(n: number) {
+    const next = Math.min(20, Math.max(1, n))
+    const prev = meal.servings ?? null
+    setMeal((m: any) => ({ ...m, servings: next }))
+    setServingsError(null)
+    const r = await setMealServings(id, next)
+    if ('error' in r && r.error) {
+      setMeal((m: any) => ({ ...m, servings: prev }))
+      setServingsError(r.error)
+    }
+  }
+
   async function handleMealItemQuantityUpdate(mealItemId: string, quantity: string) {
     setMeal((prev: any) => ({
       ...prev,
@@ -117,7 +148,51 @@ export default function MealDetailPage() {
             <Plus className="h-5 w-5" />
           </button>
         </div>
-        <p className="text-xs text-[#94A3B8] mt-1 ml-8">{meal.meal_items?.length || 0} ingrediensar</p>
+        <div className="flex items-center gap-2 mt-1 ml-8 text-xs text-[#94A3B8]">
+          <span>{meal.meal_items?.length || 0} ingrediensar ·</span>
+          {/* How many people the amounts are for; the list scales to the household size */}
+          <div className="flex items-center gap-1" title="Mengdene i oppskrifta er for så mange personar">
+            <button
+              onClick={() => changeServings((meal.servings ?? 4) - 1)}
+              className="h-6 w-6 rounded-full border text-[#64748B] leading-none"
+              aria-label="Færre personar"
+            >−</button>
+            <span className="min-w-[4.5rem] text-center text-[#0F172A]">
+              {meal.servings ? `for ${meal.servings} pers.` : 'ikkje skalert'}
+            </span>
+            <button
+              onClick={() => changeServings((meal.servings ?? 3) + 1)}
+              className="h-6 w-6 rounded-full border text-[#64748B] leading-none"
+              aria-label="Fleire personar"
+            >+</button>
+          </div>
+        </div>
+        {servingsError && <p className="text-xs text-red-600 mt-1 ml-8">{servingsError}</p>}
+        <button
+          onClick={() => setShowPaste((v) => !v)}
+          className="mt-2 ml-8 flex items-center gap-1 text-xs text-primary"
+        >
+          <ClipboardPaste className="h-3.5 w-3.5" /> Lim inn oppskrift
+        </button>
+        {showPaste && (
+          <div className="mt-2 space-y-2">
+            <textarea
+              value={pasteText}
+              onChange={(e) => setPasteText(e.target.value)}
+              placeholder={'Éin ingrediens per linje, t.d.\n400 g kjøtdeig\n1 boks hakka tomat\n2 løk'}
+              rows={6}
+              className="w-full rounded-lg border p-2 text-sm"
+              autoFocus
+            />
+            <div className="flex items-center gap-2">
+              <Button onClick={handlePaste} disabled={pasting || !pasteText.trim()} size="sm">
+                {pasting ? 'Legg til…' : 'Legg til ingrediensane'}
+              </Button>
+              <button onClick={() => { setShowPaste(false); setPasteText('') }} className="text-xs text-[#94A3B8]">Avbryt</button>
+            </div>
+          </div>
+        )}
+        {pasteNote && <p className="mt-2 text-xs text-[#64748B]">{pasteNote}</p>}
       </div>
 
       {/* Search overlay */}

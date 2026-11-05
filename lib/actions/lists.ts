@@ -4,8 +4,83 @@ import { createServiceRoleClient } from '@/lib/supabase/server'
 import { getSession } from './auth'
 import { revalidatePath } from 'next/cache'
 import { ownsList, ownedListItem, ownsItem, ownsTemplate } from '@/lib/ownership'
+import { mergeIntoList, describeMerge } from '@/lib/list-merge'
 
 const NO_ACCESS = { error: 'Ingen tilgang' }
+
+/**
+ * Add many lines at once (typed "mjølk, 2 kg potet, 3 egg", a pasted recipe, a starter
+ * dinner). The phone has already matched each entry to an existing item or decided to
+ * create one; new items are created here, then everything is merged into the list.
+ */
+export async function addLinesToList(
+  listId: string,
+  lines: { itemId: string; quantity: string; create?: { name: string; sectionId: string } }[],
+) {
+  const householdId = await getSession()
+  if (!householdId) return { error: 'Ikkje innlogga' }
+  if (!Array.isArray(lines) || lines.length === 0) return { error: 'Ingenting å legge til' }
+  if (lines.length > 100) return { error: 'For mange varer på ein gong' }
+  if (lines.some((l) => !UUID_RE.test(l.itemId))) return { error: 'Ugyldig id' }
+
+  const supabase = createServiceRoleClient()
+  if (!(await ownsList(supabase, householdId, listId))) return NO_ACCESS
+
+  // Create the new items first (ids chosen by the phone so it can show them already)
+  const toCreate = lines.filter((l) => l.create && l.create.name.trim())
+  if (toCreate.length) {
+    const { error } = await supabase.from('items').insert(
+      toCreate.map((l) => ({
+        id: l.itemId,
+        household_id: householdId,
+        name: l.create!.name.trim(),
+        section_id: l.create!.sectionId,
+        is_confirmed: false,
+      })),
+    )
+    if (error && error.code !== '23505') return { error: 'Kunne ikkje opprette nye varer' }
+  }
+
+  // Every item must belong to this household (also catches made-up ids)
+  const ids = Array.from(new Set(lines.map((l) => l.itemId)))
+  const { data: owned } = await supabase.from('items').select('id').eq('household_id', householdId).in('id', ids)
+  const ownedIds = new Set((owned || []).map((o: any) => o.id))
+  const valid = lines.filter((l) => ownedIds.has(l.itemId)).map((l) => ({ item_id: l.itemId, quantity: l.quantity || '1' }))
+
+  const result = await mergeIntoList(supabase, listId, valid)
+  return { ...result, summary: describeMerge(result), created: toCreate.length }
+}
+
+/** Copy the lines of the household's previous list into this one ("Same as last time"). */
+export async function copyFromPreviousList(listId: string) {
+  const householdId = await getSession()
+  if (!householdId) return { error: 'Ikkje innlogga' }
+
+  const supabase = createServiceRoleClient()
+  if (!(await ownsList(supabase, householdId, listId))) return NO_ACCESS
+
+  const { data: lists } = await supabase
+    .from('shopping_lists')
+    .select('id, name')
+    .eq('household_id', householdId)
+    .neq('id', listId)
+  if (!lists?.length) return { error: 'Fann inga tidlegare liste' }
+
+  // "Previous" = the other list with the most recent activity
+  const { data: last } = await supabase
+    .from('list_items')
+    .select('list_id')
+    .in('list_id', lists.map((l) => l.id))
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+  if (!last) return { error: 'Tidlegare lister er tomme' }
+
+  const { data: lines } = await supabase.from('list_items').select('item_id, quantity').eq('list_id', last.list_id)
+  const result = await mergeIntoList(supabase, listId, lines || [])
+  const from = lists.find((l) => l.id === last.list_id)?.name ?? 'førre liste'
+  return { ...result, summary: describeMerge(result), from }
+}
 
 /** List lines for one list. Replaces the browser's direct table read (blocked by RLS). */
 export async function getListItems(listId: string) {

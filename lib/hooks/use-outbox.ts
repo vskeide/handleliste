@@ -10,7 +10,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 
 export type OutboxOp =
   | { kind: 'add'; clientId: string; itemId: string; quantity?: string }
-  | { kind: 'create'; clientId: string; itemId: string; name: string; sectionId: string }
+  | { kind: 'create'; clientId: string; itemId: string; name: string; sectionId: string; quantity?: string; confirmed?: boolean }
   | { kind: 'toggle'; listItemId: string; checked: boolean }
   | { kind: 'qty'; listItemId: string; quantity: string }
   | { kind: 'remove'; listItemId: string }

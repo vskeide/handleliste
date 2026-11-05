@@ -11,7 +11,7 @@ export default async function ListDetailPage({ params }: { params: { id: string 
   // Everything the screen needs, fetched in parallel in one server round-trip:
   // the list, sections, shops, the household's items (for names + local search)
   // and the list lines themselves, so the list paints immediately.
-  const [listRes, sectionsRes, storesRes, itemsRes, lineRes] = await Promise.all([
+  const [listRes, sectionsRes, storesRes, itemsRes, lineRes, hhRes] = await Promise.all([
     supabase
       .from('shopping_lists')
       .select('*, stores(id, name, chain)')
@@ -25,6 +25,7 @@ export default async function ListDetailPage({ params }: { params: { id: string 
       .select('id, name, section_id, times_purchased, is_confirmed, check_order_sum, check_count')
       .eq('household_id', householdId),
     supabase.from('list_items').select('*').eq('list_id', params.id).order('created_at'),
+    supabase.from('households').select('family_size').eq('id', householdId).maybeSingle(),
   ])
 
   const list = listRes.data
@@ -43,6 +44,7 @@ export default async function ListDetailPage({ params }: { params: { id: string 
       householdStores={storesRes.data || []}
       initialItems={itemsRes.data || []}
       initialLines={lineRes.data || []}
+      householdSize={hhRes.data?.family_size ?? null}
     />
   )
 }

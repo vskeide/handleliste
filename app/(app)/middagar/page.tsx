@@ -3,7 +3,8 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { getMeals, createMeal, deleteMeal } from '@/lib/actions/meals'
+import { getMeals, createMeal, deleteMeal, saveStarterMeal } from '@/lib/actions/meals'
+import { STARTER_MEALS } from '@/lib/starter-meals'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Plus, UtensilsCrossed, Trash2, X } from 'lucide-react'
@@ -17,6 +18,7 @@ export default function MealsPage() {
   const [newName, setNewName] = useState('')
   const [newIcon, setNewIcon] = useState('🍽️')
   const [loading, setLoading] = useState(true)
+  const [savingStarter, setSavingStarter] = useState<string | null>(null)
 
   useEffect(() => {
     getMeals().then((data) => { setMeals(data); setLoading(false) })
@@ -30,9 +32,19 @@ export default function MealsPage() {
     }
   }
 
+  async function handleSaveStarter(name: string) {
+    setSavingStarter(name)
+    const r: any = await saveStarterMeal(name)
+    setSavingStarter(null)
+    if (r?.meal) router.push(`/middagar/${r.meal.id}`)
+    else alert(r?.error || 'Kunne ikkje lagre')
+  }
+
   async function handleDelete(e: React.MouseEvent, mealId: string) {
     e.preventDefault()
     e.stopPropagation()
+    const meal = meals.find((m) => m.id === mealId)
+    if (!confirm(`Slette middagen «${meal?.name ?? ''}»? Dette kan ikkje angrast.`)) return
     await deleteMeal(mealId)
     setMeals((prev) => prev.filter((m) => m.id !== mealId))
   }
@@ -101,7 +113,9 @@ export default function MealsPage() {
                 <span className="text-2xl">{meal.icon}</span>
                 <div className="flex-1 min-w-0">
                   <h3 className="font-semibold text-[#0F172A] truncate">{meal.name}</h3>
-                  <span className="text-xs text-[#94A3B8]">{count} ingrediensar</span>
+                  <span className="text-xs text-[#94A3B8]">
+                    {count} ingrediensar{meal.servings ? ` · for ${meal.servings} pers.` : ''}
+                  </span>
                 </div>
                 <button
                   onClick={(e) => handleDelete(e, meal.id)}
@@ -114,6 +128,30 @@ export default function MealsPage() {
           })}
         </div>
       )}
+
+      {/* Starter dinners: save one as your own to edit it; they also show up when you
+          search in a shopping list */}
+      <div className="mt-8">
+        <h2 className="text-sm font-medium text-[#64748B] mb-2">Forslag ({STARTER_MEALS.length})</h2>
+        <div className="grid grid-cols-1 gap-1.5">
+          {STARTER_MEALS.filter((s) => !meals.some((m) => m.name.toLowerCase() === s.name.toLowerCase())).map((s) => (
+            <div key={s.name} className="flex items-center gap-3 rounded-lg border border-[#E2E8F0] bg-white px-3 py-2">
+              <span className="text-lg">{s.icon}</span>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm text-[#0F172A] truncate">{s.name}</p>
+                <p className="text-[11px] text-[#94A3B8]">{s.ingredients.length} ingrediensar · for {s.servings}</p>
+              </div>
+              <button
+                onClick={() => handleSaveStarter(s.name)}
+                disabled={savingStarter === s.name}
+                className="text-xs text-primary px-2 py-1 rounded border border-primary/30"
+              >
+                {savingStarter === s.name ? 'Lagrar…' : 'Lagre'}
+              </button>
+            </div>
+          ))}
+        </div>
+      </div>
     </div>
   )
 }

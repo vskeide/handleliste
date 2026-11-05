@@ -6,7 +6,7 @@ import Link from 'next/link'
 import { t } from '@/lib/i18n'
 import { CHAIN_COLORS } from '@/lib/constants'
 import { useRealtimeList } from '@/lib/hooks/use-realtime-list'
-import { toggleListItem, addItemToList, removeListItem, uncheckAllItems, updateListItemQuantity } from '@/lib/actions/lists'
+import { toggleListItem, addItemToList, removeListItem, uncheckAllItems, updateListItemQuantity, copyFromPreviousList, addLinesToList } from '@/lib/actions/lists'
 import { updateList, deleteList, saveAsTemplate } from '@/lib/actions/lists'
 import { createItemAndAddToList, getHouseholdItems, updateItemSection } from '@/lib/actions/items'
 import { getMeals, addMealToList } from '@/lib/actions/meals'
@@ -17,7 +17,12 @@ import { QuantityPickerSheet, formatQuantityDisplay, parseQuantity } from '@/com
 import { NextItemMode, type NextItemEntry } from '@/components/next-item-mode'
 import { ItemName } from '@/components/item-name'
 import { useOutbox, isNetworkError, type OutboxOp } from '@/lib/hooks/use-outbox'
-import { ArrowLeft, Plus, Search, X, Check, Trash2, Map, Store, RotateCcw, Bookmark, MoreVertical, UtensilsCrossed, Shuffle, ArrowRightLeft, Play, Pencil, CloudOff } from 'lucide-react'
+import { searchAll, resolveName, guessSection, displayName, type KnownItem } from '@/lib/match'
+import { parseEntry, splitEntries, isMultiEntry } from '@/lib/parse-list'
+import { scaleQty } from '@/lib/quantity'
+import type { CatalogProduct } from '@/lib/catalog-data'
+import { STARTER_MEALS, type StarterMeal } from '@/lib/starter-meals'
+import { ArrowLeft, Plus, Search, X, Check, Trash2, Map, Store, RotateCcw, Bookmark, MoreVertical, UtensilsCrossed, Shuffle, ArrowRightLeft, Play, Pencil, CloudOff, History } from 'lucide-react'
 import type { Section, WalkOrder, ListItem } from '@/lib/types'
 
 interface Props {
@@ -27,6 +32,7 @@ interface Props {
   householdStores: any[]
   initialItems: any[]
   initialLines: ListItem[]
+  householdSize: number | null
 }
 
 function newId(): string {
@@ -55,10 +61,12 @@ function searchLocal(all: any[], query: string, limit = 20) {
   return scored.slice(0, limit).map((s) => s.item)
 }
 
-export function ListDetailClient({ list, sections, walkOrder, householdStores, initialItems, initialLines }: Props) {
+export function ListDetailClient({ list, sections, walkOrder, householdStores, initialItems, initialLines, householdSize }: Props) {
   const router = useRouter()
   const { items: listItems, loading, refetch, notifyChanged, optimisticToggle, optimisticRemove, optimisticUpdateQuantity, optimisticAdd, confirmAdd, rollbackAdd } = useRealtimeList(list.id, initialLines)
   const [notice, setNotice] = useState<string | null>(null)
+  const [busyCopy, setBusyCopy] = useState(false)
+  const [inputFocused, setInputFocused] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [searchResults, setSearchResults] = useState<any[]>([])
   const [highlightIndex, setHighlightIndex] = useState(0)
@@ -152,23 +160,42 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores, i
       }
     })
 
-  // Search runs locally over the household's items: no network, so results are always
-  // current when Enter is pressed.
+  const sectionIdByName: Record<string, string> = {}
+  sections.forEach((s) => { sectionIdByName[s.name_nn] = s.id })
+  const fallbackSectionId = sectionIdByName['Tørrvarer'] ?? sections[0]?.id
+
+  // Search runs on the phone over the household's items plus the product catalogue:
+  // no network, so results are always current when Enter is pressed. Catalogue hits
+  // get a "cat:" id and become household items the first time they are added.
   const handleSearch = useCallback((query: string) => {
     setSearchQuery(query)
     setShowSectionPicker(false)
-    if (query.trim().length < 1) {
+    // For "2 kg potet" search on the name part only
+    const term = parseEntry(splitEntries(query).pop() ?? query).name
+    if (query.trim().length < 1 || !term) {
       setSearchResults([])
       setMealResults([])
       return
     }
     // Items already on the list stay in the results, marked with their quantity, so
     // picking one again adds to the quantity instead of silently doing nothing
-    setSearchResults(searchLocal(Object.values(itemsMap), query))
-    const lq = query.toLowerCase()
-    setMealResults(meals.filter((m) => m.name.toLowerCase().includes(lq)))
+    const hits = searchAll(Object.values(itemsMap) as KnownItem[], term)
+    setSearchResults(hits.map((h) =>
+      h.kind === 'item'
+        ? h.item
+        : { id: `cat:${h.product.name}`, name: h.product.name, section_id: sectionIdByName[h.product.section] ?? null, is_confirmed: true, catalog: h.product },
+    ))
+    const lq = term.toLowerCase()
+    const own = meals.filter((m) => m.name.toLowerCase().includes(lq))
+    const ownNames = new Set(own.map((m) => m.name.toLowerCase()))
+    const starters = STARTER_MEALS
+      .filter((m) => m.name.toLowerCase().includes(lq) && !ownNames.has(m.name.toLowerCase()))
+      .slice(0, 4)
+      .map((m) => ({ id: `starter:${m.name}`, name: m.name, icon: m.icon, starter: m, meal_items: [{ count: m.ingredients.length }] }))
+    setMealResults([...own, ...starters])
     setHighlightIndex(0)
-  }, [listItems, meals, itemsMap])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [listItems, meals, itemsMap, sections])
 
   function resetSearch() {
     setSearchQuery('')
@@ -178,7 +205,102 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores, i
     searchRef.current?.focus()
   }
 
+  /** A catalogue product picked for the first time: make it a household item and add it. */
+  function addFromCatalog(product: CatalogProduct, quantity?: string) {
+    resetSearch()
+    const sectionId = sectionIdByName[product.section] ?? fallbackSectionId
+    const itemId = newId()
+    const clientId = newId()
+    const qty = quantity && quantity !== '1' ? quantity : product.qty ?? '1'
+    setItemsMap((prev) => ({
+      ...prev,
+      [itemId]: { id: itemId, name: product.name, section_id: sectionId, times_purchased: 0, is_confirmed: true, check_count: 0, check_order_sum: 0 },
+    }))
+    optimisticAdd(draftLine(clientId, itemId, qty), true)
+    send({ kind: 'create', clientId, itemId, name: product.name, sectionId, quantity: qty, confirmed: true })
+  }
+
+  /**
+   * Several entries at once ("mjølk, 2 kg potet, 3 egg") or one with an amount
+   * ("2 kg potet"). Each is matched to a household item, a catalogue product or a new
+   * item (section guessed from catalogue words; the "Ny" badge lets you move it).
+   */
+  async function handleMultiAdd(text: string) {
+    resetSearch()
+    const lines: { itemId: string; quantity: string; create?: { name: string; sectionId: string } }[] = []
+    const newItems: Record<string, any> = {}
+    const known = Object.values(itemsMap) as KnownItem[]
+    for (const entry of splitEntries(text)) {
+      const { name, quantity } = parseEntry(entry)
+      if (!name) continue
+      const hit = resolveName(known, name)
+      if (hit?.kind === 'item') {
+        lines.push({ itemId: hit.item.id, quantity })
+      } else if (hit?.kind === 'catalog') {
+        const id = newId()
+        const sectionId = sectionIdByName[hit.product.section] ?? fallbackSectionId
+        lines.push({ itemId: id, quantity: quantity !== '1' ? quantity : hit.product.qty ?? '1', create: { name: hit.product.name, sectionId } })
+        newItems[id] = { id, name: hit.product.name, section_id: sectionId, times_purchased: 0, is_confirmed: true }
+      } else {
+        const id = newId()
+        const guessed = guessSection(name)
+        const sectionId = (guessed && sectionIdByName[guessed]) || fallbackSectionId
+        lines.push({ itemId: id, quantity, create: { name: displayName(name), sectionId } })
+        newItems[id] = { id, name: displayName(name), section_id: sectionId, times_purchased: 0, is_confirmed: false }
+      }
+    }
+    if (!lines.length) return
+    setItemsMap((prev) => ({ ...prev, ...newItems }))
+    try {
+      const r: any = await addLinesToList(list.id, lines)
+      if (r?.error) { setNotice(r.error); return }
+      await refetch()
+      notifyChanged()
+      setNotice(r.summary + (r.created ? ` · ${r.created} nye varer` : ''))
+    } catch {
+      setNotice('Ingen nett – prøv igjen når du er på nett')
+    }
+  }
+
+  /** A starter dinner: scale to the household and add, creating items as needed. */
+  async function handleAddStarter(meal: StarterMeal) {
+    const factor = householdSize && meal.servings ? householdSize / meal.servings : 1
+    resetSearch()
+    const known = Object.values(itemsMap) as KnownItem[]
+    const lines: { itemId: string; quantity: string; create?: { name: string; sectionId: string } }[] = []
+    const newItems: Record<string, any> = {}
+    for (const ing of meal.ingredients) {
+      const quantity = scaleQty(ing.qty, factor)
+      const hit = resolveName(known, ing.name)
+      if (hit?.kind === 'item') { lines.push({ itemId: hit.item.id, quantity }); continue }
+      const product = hit?.kind === 'catalog' ? hit.product : null
+      const id = newId()
+      const name = product?.name ?? ing.name
+      const sectionId = (product && sectionIdByName[product.section]) || fallbackSectionId
+      lines.push({ itemId: id, quantity, create: { name, sectionId } })
+      newItems[id] = { id, name, section_id: sectionId, times_purchased: 0, is_confirmed: true }
+    }
+    setItemsMap((prev) => ({ ...prev, ...newItems }))
+    try {
+      const r: any = await addLinesToList(list.id, lines)
+      if (r?.error) { setNotice(r.error); return }
+      await refetch()
+      notifyChanged()
+      const forWhom = factor !== 1 ? ` (for ${householdSize})` : ''
+      setNotice(`${meal.icon} ${meal.name}${forWhom}: ${r.summary}`)
+    } catch {
+      setNotice('Ingen nett – prøv igjen når du er på nett')
+    }
+  }
+
   function handleAddItem(itemId: string) {
+    if (itemId.startsWith('cat:')) {
+      const product = searchResults.find((r: any) => r.id === itemId)?.catalog as CatalogProduct | undefined
+      if (product) addFromCatalog(product, parseEntry(searchQuery).quantity)
+      return
+    }
+    // "2 kg kjøtdeig" typed, then a hit tapped: keep the typed amount
+    const typedQty = parseEntry(searchQuery).quantity
     resetSearch()
 
     const name = itemsMap[itemId]?.name || 'Vara'
@@ -204,8 +326,8 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores, i
 
     // Show the line now, store it in the background (or queue it if there is no signal)
     const clientId = newId()
-    optimisticAdd(draftLine(clientId, itemId), true)
-    send({ kind: 'add', clientId, itemId })
+    optimisticAdd(draftLine(clientId, itemId, typedQty), true)
+    send({ kind: 'add', clientId, itemId, quantity: typedQty })
   }
 
   function draftLine(clientId: string, itemId: string, quantity = '1'): ListItem {
@@ -219,7 +341,7 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores, i
   function runOp(op: OutboxOp): Promise<unknown> {
     switch (op.kind) {
       case 'add': return addItemToList(list.id, op.itemId, op.quantity, op.clientId)
-      case 'create': return createItemAndAddToList(list.id, op.name, op.sectionId, op.itemId, op.clientId)
+      case 'create': return createItemAndAddToList(list.id, op.name, op.sectionId, op.itemId, op.clientId, op.quantity, op.confirmed)
       case 'toggle': return toggleListItem(op.listItemId, op.checked)
       case 'qty': return updateListItemQuantity(op.listItemId, op.quantity)
       case 'remove': return removeListItem(op.listItemId)
@@ -262,7 +384,7 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores, i
           ...prev,
           [op.itemId]: { id: op.itemId, name: op.name, section_id: op.sectionId, times_purchased: 0, is_confirmed: false, check_count: 0, check_order_sum: 0, sections: section },
         }))
-        optimisticAdd(draftLine(op.clientId, op.itemId), true)
+        optimisticAdd(draftLine(op.clientId, op.itemId, op.quantity), true)
       } else if (op.kind === 'add') optimisticAdd(draftLine(op.clientId, op.itemId, op.quantity), true)
       else if (op.kind === 'toggle') optimisticToggle(op.listItemId, op.checked)
       else if (op.kind === 'qty') optimisticUpdateQuantity(op.listItemId, op.quantity)
@@ -290,14 +412,39 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores, i
   }
 
   async function handleAddMeal(mealId: string) {
-    await addMealToList(mealId, list.id)
+    if (mealId.startsWith('starter:')) {
+      const starter = mealResults.find((m: any) => m.id === mealId)?.starter as StarterMeal | undefined
+      if (starter) await handleAddStarter(starter)
+      return
+    }
+    const meal = meals.find((m) => m.id === mealId)
+    resetSearch()
+    const r: any = await addMealToList(mealId, list.id)
+    if (r?.error) { setNotice(r.error); return }
     await refetch()
     notifyChanged()
-    setSearchQuery('')
-    setSearchResults([])
-    setMealResults([])
-    setTimeout(() => searchRef.current?.focus(), 50)
+    const scaled = r?.scaledFor ? ` (for ${r.scaledFor})` : ''
+    setNotice(`${meal?.icon ?? ''} ${meal?.name ?? 'Middag'}${scaled}: ${r?.summary ?? 'lagt til'}`)
   }
+
+  /** "Same as last time": copy the previous list's lines into this one. */
+  async function handleCopyPrevious() {
+    setShowMenu(false)
+    setBusyCopy(true)
+    const r: any = await copyFromPreviousList(list.id)
+    setBusyCopy(false)
+    if (r?.error) { setNotice(r.error); return }
+    await refetch()
+    notifyChanged()
+    setNotice(`Frå «${r.from}»: ${r.summary}`)
+  }
+
+  // Most-bought items not already waiting on the list: one-tap chips
+  const activeItemIds = new Set(listItems.filter((li) => !li.is_checked).map((li) => li.item_id))
+  const frequentItems = Object.values(itemsMap)
+    .filter((it: any) => (it.times_purchased || 0) > 0 && !activeItemIds.has(it.id))
+    .sort((a: any, b: any) => (b.times_purchased || 0) - (a.times_purchased || 0))
+    .slice(0, 10)
 
   async function handleMoveItem(itemId: string, newSectionId: string) {
     await updateItemSection(itemId, newSectionId)
@@ -403,7 +550,14 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores, i
               {showMenu && (
                 <>
                 <div className="fixed inset-0 z-40" onClick={() => setShowMenu(false)} />
-                <div className="absolute right-0 top-8 bg-white rounded-lg shadow-lg border py-1 w-48 z-50">
+                <div className="absolute right-0 top-8 bg-white rounded-lg shadow-lg border py-1 w-56 z-50">
+                  <button
+                    onClick={handleCopyPrevious}
+                    className="flex items-center gap-2 w-full px-3 py-2 text-sm text-left hover:bg-[#F1F5F9]"
+                  >
+                    <History className="h-4 w-4 text-[#64748B]" />
+                    Same som sist
+                  </button>
                   {checkedCount > 0 && (
                     <button
                       onClick={handleUncheckAll}
@@ -519,8 +673,24 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores, i
           results opening upwards so the thumb never has to reach the top */}
       <div className="fixed left-0 right-0 bottom-[65px] z-40 pointer-events-none">
         <div className="mx-auto max-w-lg px-3 pointer-events-auto">
-          {(searchQuery.length > 0 || showSectionPicker) && (
+          {(searchQuery.length > 0 || showSectionPicker || (inputFocused && frequentItems.length > 0 && listItems.length > 0)) && (
           <div className="mb-1 max-h-[45vh] overflow-y-auto rounded-xl border bg-white px-3 py-2 shadow-lg">
+
+          {/* Empty field: most-bought items as one-tap chips (mouse-down keeps the keyboard up) */}
+          {!searchQuery && !showSectionPicker && (
+            <div className="flex flex-wrap gap-1.5 py-1">
+              {frequentItems.map((it: any) => (
+                <button
+                  key={it.id}
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => handleAddItem(it.id)}
+                  className="rounded-full border px-2.5 py-1 text-sm text-[#0F172A] hover:border-primary"
+                >
+                  {sectionMap[it.section_id]?.icon} {it.name}
+                </button>
+              ))}
+            </div>
+          )}
 
           {/* Meal results */}
           {mealResults.length > 0 && (
@@ -645,7 +815,10 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores, i
               onKeyDown={(e) => {
                 if (e.key === 'Enter') {
                   e.preventDefault()
-                  if (searchResults.length > 0) {
+                  // Several entries, or one with an amount: add them all in one go
+                  if (isMultiEntry(searchQuery) || (parseEntry(searchQuery).quantity !== '1' && searchResults.length === 0)) {
+                    handleMultiAdd(searchQuery)
+                  } else if (searchResults.length > 0) {
                     handleAddItem(searchResults[highlightIndex]?.id || searchResults[0].id)
                   } else if (searchQuery.trim().length > 0) {
                     setNewItemName(searchQuery.trim())
@@ -663,6 +836,8 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores, i
               className="border-0 shadow-none focus-visible:ring-0 h-12 px-0 text-base"
               enterKeyHint="done"
               autoComplete="off"
+              onFocus={() => setInputFocused(true)}
+              onBlur={() => setTimeout(() => setInputFocused(false), 150)}
               aria-label="Legg til vare"
             />
             {searchQuery && (
@@ -716,12 +891,28 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores, i
         {loading ? (
           <p className="text-center text-[#94A3B8] py-8">Lastar...</p>
         ) : listItems.length === 0 ? (
-          <div className="text-center py-12">
-            <p className="text-[#64748B] mb-3">{t('list.add_item')}</p>
-            <Button onClick={() => searchRef.current?.focus()} variant="outline">
-              <Plus className="h-4 w-4 mr-2" />
-              {t('list.add_item')}
+          <div className="text-center py-10 space-y-4">
+            <p className="text-[#64748B]">Lista er tom</p>
+            <Button onClick={handleCopyPrevious} disabled={busyCopy} className="h-12 px-6">
+              <History className="h-4 w-4 mr-2" />
+              {busyCopy ? 'Hentar…' : 'Same som sist'}
             </Button>
+            {frequentItems.length > 0 && (
+              <div>
+                <p className="text-xs text-[#94A3B8] mb-2">eller trykk på det de ofte kjøper</p>
+                <div className="flex flex-wrap justify-center gap-2">
+                  {frequentItems.map((it: any) => (
+                    <button
+                      key={it.id}
+                      onClick={() => handleAddItem(it.id)}
+                      className="rounded-full border bg-white px-3 py-1.5 text-sm text-[#0F172A] hover:border-primary"
+                    >
+                      {sectionMap[it.section_id]?.icon} {it.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         ) : frihandelMode ? (
           /* ── Frihandel mode: flat list sorted by smart order ── */

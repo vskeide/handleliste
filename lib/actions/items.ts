@@ -53,6 +53,8 @@ export async function createItemAndAddToList(
   sectionId: string,
   itemId: string,
   listItemId: string,
+  quantity = '1',
+  confirmed = false, // true when it comes from the product catalogue (no "Ny" badge)
 ) {
   const householdId = await getSession()
   if (!householdId) return { error: 'Ikkje innlogga' }
@@ -64,7 +66,7 @@ export async function createItemAndAddToList(
 
   const { data: item, error } = await supabase
     .from('items')
-    .insert({ id: itemId, household_id: householdId, name: name.trim(), section_id: sectionId, is_confirmed: false })
+    .insert({ id: itemId, household_id: householdId, name: name.trim(), section_id: sectionId, is_confirmed: !!confirmed })
     .select('*, sections(name_nn, icon, color)')
     .single()
   if (error || !item) {
@@ -74,7 +76,7 @@ export async function createItemAndAddToList(
 
   const { data: listItem, error: liErr } = await supabase
     .from('list_items')
-    .insert({ id: listItemId, list_id: listId, item_id: item.id, quantity: '1' })
+    .insert({ id: listItemId, list_id: listId, item_id: item.id, quantity: quantity || '1' })
     .select()
     .single()
   if (liErr) return { error: 'Kunne ikkje legge til vare', item }
