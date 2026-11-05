@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from 'next'
 import { Inter } from 'next/font/google'
 import './globals.css'
+import { RegisterServiceWorker } from '@/components/register-sw'
 
 const inter = Inter({ subsets: ['latin'] })
 
@@ -8,6 +9,11 @@ export const metadata: Metadata = {
   title: 'Handleliste',
   description: 'Smart handleliste for norske butikkar',
   manifest: '/manifest.json',
+  icons: {
+    icon: [{ url: '/icons/icon-192.png', sizes: '192x192', type: 'image/png' }],
+    apple: [{ url: '/icons/apple-180.png', sizes: '180x180', type: 'image/png' }],
+  },
+  appleWebApp: { capable: true, title: 'Handleliste', statusBarStyle: 'default' },
 }
 
 export const viewport: Viewport = {
@@ -24,7 +30,10 @@ export default function RootLayout({
 }) {
   return (
     <html lang="nn">
-      <body className={inter.className}>{children}</body>
+      <body className={inter.className}>
+        {children}
+        <RegisterServiceWorker />
+      </body>
     </html>
   )
 }

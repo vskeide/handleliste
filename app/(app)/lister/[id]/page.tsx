@@ -1,7 +1,6 @@
 import { requireSession } from '@/lib/session'
 import { notFound } from 'next/navigation'
 import { createServiceRoleClient } from '@/lib/supabase/server'
-import { SESSION_COOKIE_NAME } from '@/lib/constants'
 import { getWalkOrder } from '@/lib/actions/stores'
 import { ListDetailClient } from './list-detail-client'
 
@@ -9,38 +8,41 @@ export default async function ListDetailPage({ params }: { params: { id: string 
   const householdId = requireSession()
   const supabase = createServiceRoleClient()
 
-  const { data: list } = await supabase
-    .from('shopping_lists')
-    .select('*, stores(id, name, chain)')
-    .eq('id', params.id)
-    .eq('household_id', householdId)
-    .single()
+  // Everything the screen needs, fetched in parallel in one server round-trip:
+  // the list, sections, shops, the household's items (for names + local search)
+  // and the list lines themselves, so the list paints immediately.
+  const [listRes, sectionsRes, storesRes, itemsRes, lineRes] = await Promise.all([
+    supabase
+      .from('shopping_lists')
+      .select('*, stores(id, name, chain)')
+      .eq('id', params.id)
+      .eq('household_id', householdId)
+      .maybeSingle(),
+    supabase.from('sections').select('*').order('default_sort_order'),
+    supabase.from('household_stores').select('*, stores(*)').eq('household_id', householdId),
+    supabase
+      .from('items')
+      .select('id, name, section_id, times_purchased, is_confirmed, check_order_sum, check_count')
+      .eq('household_id', householdId),
+    supabase.from('list_items').select('*').eq('list_id', params.id).order('created_at'),
+  ])
 
+  const list = listRes.data
   if (!list) notFound()
+  const sections = sectionsRes.data || []
 
-  // Get sections
-  const { data: sections } = await supabase
-    .from('sections')
-    .select('*')
-    .order('default_sort_order')
-
-  // Get walk order for this store (if assigned)
   const walkOrder = list.store_id
     ? await getWalkOrder(list.store_id)
-    : (sections || []).map((s: any) => ({ section_id: s.id, walk_order: s.default_sort_order }))
-
-  // Get all household stores for the store selector
-  const { data: householdStores } = await supabase
-    .from('household_stores')
-    .select('*, stores(*)')
-    .eq('household_id', householdId)
+    : sections.map((s: any) => ({ section_id: s.id, walk_order: s.default_sort_order }))
 
   return (
     <ListDetailClient
       list={list}
-      sections={sections || []}
+      sections={sections}
       walkOrder={walkOrder}
-      householdStores={householdStores || []}
+      householdStores={storesRes.data || []}
+      initialItems={itemsRes.data || []}
+      initialLines={lineRes.data || []}
     />
   )
 }

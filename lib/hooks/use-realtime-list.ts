@@ -16,19 +16,28 @@ import type { ListItem } from '@/lib/types'
 //    and every 20 s while visible.
 const POLL_MS = 20_000
 
-export function useRealtimeList(listId: string) {
-  const [items, setItems] = useState<ListItem[]>([])
-  const [loading, setLoading] = useState(true)
+export function useRealtimeList(listId: string, initialLines?: ListItem[]) {
+  const [items, setItems] = useState<ListItem[]>(initialLines ?? [])
+  const [loading, setLoading] = useState(!initialLines)
   const channelRef = useRef<RealtimeChannel | null>(null)
+  // Lines shown optimistically that the server hasn't confirmed yet. A refetch that
+  // lands in between must not make them blink out.
+  const pendingRef = useRef<Set<string>>(new Set())
 
   const fetchItems = useCallback(async () => {
-    const data = await getListItems(listId)
-    if (data) setItems(data as ListItem[])
+    const data = (await getListItems(listId)) as ListItem[] | null
+    if (data) {
+      setItems((prev) => {
+        const serverIds = new Set(data.map((d) => d.id))
+        const stillPending = prev.filter((p) => pendingRef.current.has(p.id) && !serverIds.has(p.id))
+        return [...data, ...stillPending]
+      })
+    }
     setLoading(false)
   }, [listId])
 
   useEffect(() => {
-    fetchItems()
+    if (!initialLines) fetchItems()
 
     const supabase = createClient()
     const channel = supabase
@@ -47,6 +56,7 @@ export function useRealtimeList(listId: string) {
       channelRef.current = null
       supabase.removeChannel(channel)
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- initialLines only matters on mount
   }, [listId, fetchItems])
 
   /** Tell the other phones on this list to refetch. Call after a write succeeds. */
@@ -70,11 +80,23 @@ export function useRealtimeList(listId: string) {
     setItems((prev) => prev.filter((item) => item.id !== itemId))
   }, [])
 
-  // Optimistic update: add an item immediately
-  const optimisticAdd = useCallback((item: ListItem) => {
+  // Optimistic update: add an item immediately (mark it pending until confirmAdd)
+  const optimisticAdd = useCallback((item: ListItem, pending = false) => {
+    if (pending) pendingRef.current.add(item.id)
     setItems((prev) => {
       if (prev.some((i) => i.id === item.id)) return prev
       return [...prev, item]
+    })
+  }, [])
+
+  /** The server stored the line: swap in the server row (its id may differ if it existed). */
+  const confirmAdd = useCallback((clientId: string, row: ListItem) => {
+    pendingRef.current.delete(clientId)
+    setItems((prev) => {
+      const without = prev.filter((i) => i.id !== clientId && i.id !== row.id)
+      const at = prev.findIndex((i) => i.id === clientId)
+      if (at < 0) return [...without, row]
+      return [...without.slice(0, at), row, ...without.slice(at)]
     })
   }, [])
 
@@ -85,8 +107,16 @@ export function useRealtimeList(listId: string) {
     )
   }, [])
 
+  /** Drop a line that the server refused (undo of an optimistic add). */
+  const rollbackAdd = useCallback((clientId: string) => {
+    pendingRef.current.delete(clientId)
+    setItems((prev) => prev.filter((i) => i.id !== clientId))
+  }, [])
+
   return {
     items,
+    rollbackAdd,
+    confirmAdd,
     loading,
     refetch: fetchItems,
     notifyChanged,

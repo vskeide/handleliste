@@ -8,7 +8,7 @@ import { CHAIN_COLORS } from '@/lib/constants'
 import { useRealtimeList } from '@/lib/hooks/use-realtime-list'
 import { toggleListItem, addItemToList, removeListItem, uncheckAllItems, updateListItemQuantity } from '@/lib/actions/lists'
 import { updateList, deleteList, saveAsTemplate } from '@/lib/actions/lists'
-import { searchItems, createItem, getHouseholdItems, updateItemSection } from '@/lib/actions/items'
+import { createItemAndAddToList, getHouseholdItems, updateItemSection } from '@/lib/actions/items'
 import { getMeals, addMealToList } from '@/lib/actions/meals'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -16,18 +16,47 @@ import { Badge } from '@/components/ui/badge'
 import { QuantityPickerSheet, formatQuantityDisplay } from '@/components/quantity-picker-sheet'
 import { NextItemMode, type NextItemEntry } from '@/components/next-item-mode'
 import { ArrowLeft, Plus, Search, X, Check, Trash2, Map, Store, RotateCcw, Bookmark, MoreVertical, UtensilsCrossed, Shuffle, ArrowRightLeft, Play } from 'lucide-react'
-import type { Section, WalkOrder } from '@/lib/types'
+import type { Section, WalkOrder, ListItem } from '@/lib/types'
 
 interface Props {
   list: any
   sections: Section[]
   walkOrder: WalkOrder[]
   householdStores: any[]
+  initialItems: any[]
+  initialLines: ListItem[]
 }
 
-export function ListDetailClient({ list, sections, walkOrder, householdStores }: Props) {
+function newId(): string {
+  return typeof crypto !== 'undefined' && 'randomUUID' in crypto
+    ? crypto.randomUUID()
+    : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+        const r = (Math.random() * 16) | 0
+        return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16)
+      })
+}
+
+/** Rank household items against what the user has typed. Runs on the phone, instantly. */
+function searchLocal(all: any[], query: string, limit = 20) {
+  const q = query.trim().toLocaleLowerCase('nn')
+  if (!q) return []
+  const scored: { item: any; score: number }[] = []
+  for (const item of all) {
+    const name = (item.name || '').toLocaleLowerCase('nn')
+    const at = name.indexOf(q)
+    if (at < 0) continue
+    // 0 = starts with, 1 = a word starts with, 2 = anywhere
+    const rank = at === 0 ? 0 : /[\s(\-/]/.test(name[at - 1]) ? 1 : 2
+    scored.push({ item, score: rank * 1e6 - (item.times_purchased || 0) * 100 + name.length })
+  }
+  scored.sort((a, b) => a.score - b.score)
+  return scored.slice(0, limit).map((s) => s.item)
+}
+
+export function ListDetailClient({ list, sections, walkOrder, householdStores, initialItems, initialLines }: Props) {
   const router = useRouter()
-  const { items: listItems, loading, refetch, notifyChanged, optimisticToggle, optimisticRemove, optimisticUpdateQuantity, optimisticAdd } = useRealtimeList(list.id)
+  const { items: listItems, loading, refetch, notifyChanged, optimisticToggle, optimisticRemove, optimisticUpdateQuantity, optimisticAdd, confirmAdd, rollbackAdd } = useRealtimeList(list.id, initialLines)
+  const [notice, setNotice] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
   const [searchResults, setSearchResults] = useState<any[]>([])
   const [highlightIndex, setHighlightIndex] = useState(0)
@@ -45,21 +74,31 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores }:
   const [editingQuantityId, setEditingQuantityId] = useState<string | null>(null)
   const [showNextMode, setShowNextMode] = useState(false)
   const searchRef = useRef<HTMLInputElement>(null)
-  const [itemsMap, setItemsMap] = useState<Record<string, any>>({})
+  const [itemsMap, setItemsMap] = useState<Record<string, any>>(() => {
+    const map: Record<string, any> = {}
+    for (const item of initialItems) map[item.id] = item
+    return map
+  })
 
-  // Fetch item details and meals
+  // Items arrive with the page. Only refetch them if a line shows up for an item we
+  // don't know yet (created on the other phone).
+  const unknownItem = listItems.some((li) => !itemsMap[li.item_id])
   useEffect(() => {
-    async function fetchItemDetails() {
-      if (listItems.length === 0) return
-      const results = await getHouseholdItems()
-      const map: Record<string, any> = {}
-      for (const item of results) {
-        map[item.id] = item
-      }
-      setItemsMap(map)
-    }
-    fetchItemDetails()
-  }, [listItems.length])
+    if (!unknownItem) return
+    getHouseholdItems().then((results) => {
+      setItemsMap((prev) => {
+        const map = { ...prev }
+        for (const item of results) map[item.id] = { ...prev[item.id], ...item }
+        return map
+      })
+    })
+  }, [unknownItem])
+
+  useEffect(() => {
+    if (!notice) return
+    const t = setTimeout(() => setNotice(null), 3000)
+    return () => clearTimeout(t)
+  }, [notice])
 
   useEffect(() => {
     getMeals().then(setMeals)
@@ -111,46 +150,74 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores }:
       }
     })
 
-  // Search handler
-  const handleSearch = useCallback(async (query: string) => {
+  // Search runs locally over the household's items: no network, so results are always
+  // current when Enter is pressed.
+  const handleSearch = useCallback((query: string) => {
     setSearchQuery(query)
-    if (query.length < 1) {
+    setShowSectionPicker(false)
+    if (query.trim().length < 1) {
       setSearchResults([])
       setMealResults([])
       return
     }
-    const results = await searchItems(query)
-    const existingItemIds = new Set(listItems.map((li) => li.item_id))
-    setSearchResults(results.filter((r: any) => !existingItemIds.has(r.id)))
-    // Filter meals matching query
+    // Hide items already on the list and not ticked; ticked ones can be re-added
+    const activeOnList = new Set(listItems.filter((li) => !li.is_checked).map((li) => li.item_id))
+    const candidates = Object.values(itemsMap).filter((it: any) => !activeOnList.has(it.id))
+    setSearchResults(searchLocal(candidates, query))
     const lq = query.toLowerCase()
     setMealResults(meals.filter((m) => m.name.toLowerCase().includes(lq)))
     setHighlightIndex(0)
-  }, [listItems, meals])
+  }, [listItems, meals, itemsMap])
 
-  async function handleAddItem(itemId: string) {
-    const result = await addItemToList(list.id, itemId)
-    if ('listItem' in result && result.listItem) { optimisticAdd(result.listItem); notifyChanged() }
+  function resetSearch() {
     setSearchQuery('')
     setSearchResults([])
-    // Keep search open and refocus for quick consecutive adds
-    setTimeout(() => searchRef.current?.focus(), 50)
+    setMealResults([])
+    // Keep search open and focused for quick consecutive adds
+    searchRef.current?.focus()
   }
 
-  async function handleCreateAndAdd(sectionId: string) {
-    const result = await createItem(newItemName, sectionId)
-    if (result.item) {
-      const addResult = await addItemToList(list.id, result.item.id)
-      if ('listItem' in addResult && addResult.listItem) { optimisticAdd(addResult.listItem); notifyChanged() }
-      // Add the new item to the local items map immediately
-      setItemsMap((prev) => ({ ...prev, [result.item.id]: { ...result.item, sections: sections.find((s) => s.id === sectionId) } }))
-    }
+  function handleAddItem(itemId: string) {
+    resetSearch()
+
+    // Already on the list but ticked off: just untick it
+    const ticked = listItems.find((li) => li.item_id === itemId && li.is_checked)
+    if (ticked) { handleToggle(ticked.id, true); return }
+
+    // Show the line now, store it in the background
+    const clientId = newId()
+    optimisticAdd({
+      id: clientId, list_id: list.id, item_id: itemId, quantity: '1', is_checked: false,
+      checked_at: null, sort_override: null, created_at: new Date().toISOString(),
+    }, true)
+    addItemToList(list.id, itemId, undefined, clientId).then((result) => {
+      if ('listItem' in result && result.listItem) { confirmAdd(clientId, result.listItem); notifyChanged() }
+      else { rollbackAdd(clientId); setNotice(('error' in result && result.error) || 'Kunne ikkje legge til vare') }
+    }).catch(() => { rollbackAdd(clientId); setNotice('Ingen kontakt med serveren') })
+  }
+
+  function handleCreateAndAdd(sectionId: string) {
+    const name = newItemName.trim()
+    if (!name) return
     setNewItemName('')
     setShowSectionPicker(false)
-    setSearchQuery('')
-    setSearchResults([])
-    // Keep search open and refocus for quick consecutive adds
-    setTimeout(() => searchRef.current?.focus(), 50)
+    resetSearch()
+
+    const itemId = newId()
+    const clientId = newId()
+    const section = sections.find((s) => s.id === sectionId)
+    setItemsMap((prev) => ({
+      ...prev,
+      [itemId]: { id: itemId, name, section_id: sectionId, times_purchased: 0, is_confirmed: false, check_count: 0, check_order_sum: 0, sections: section },
+    }))
+    optimisticAdd({
+      id: clientId, list_id: list.id, item_id: itemId, quantity: '1', is_checked: false,
+      checked_at: null, sort_override: null, created_at: new Date().toISOString(),
+    }, true)
+    createItemAndAddToList(list.id, name, sectionId, itemId, clientId).then((result) => {
+      if ('listItem' in result && result.listItem) { confirmAdd(clientId, result.listItem); notifyChanged() }
+      else { rollbackAdd(clientId); setNotice(result.error || 'Kunne ikkje opprette vare') }
+    }).catch(() => { rollbackAdd(clientId); setNotice('Ingen kontakt med serveren') })
   }
 
   async function handleAddMeal(mealId: string) {
@@ -776,6 +843,12 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores }:
           />
         ) : null
       })()}
+
+      {notice && (
+        <div className="fixed bottom-36 left-1/2 -translate-x-1/2 z-50 rounded-lg bg-[#0F172A] text-white text-sm px-4 py-2 shadow-lg">
+          {notice}
+        </div>
+      )}
 
       {/* Bottom actions */}
       <div className="fixed bottom-20 right-4 z-30">

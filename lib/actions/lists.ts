@@ -76,28 +76,32 @@ export async function updateList(listId: string, updates: { name?: string; store
   return { success: true }
 }
 
-export async function addItemToList(listId: string, itemId: string, quantity?: string) {
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+/**
+ * Add an item to a list. `clientId` lets the phone pick the row id up front, so it can
+ * show the line instantly and match it with the server row afterwards.
+ */
+export async function addItemToList(listId: string, itemId: string, quantity?: string, clientId?: string) {
   const householdId = await getSession()
   if (!householdId) return { error: 'Ikkje innlogga' }
 
   const supabase = createServiceRoleClient()
-  if (!(await ownsList(supabase, householdId, listId)) || !(await ownsItem(supabase, householdId, itemId))) {
-    return NO_ACCESS
-  }
+  // Ownership and duplicate checks run in parallel (all server-side, same region as the DB)
+  const [listOk, itemOk, existingRes] = await Promise.all([
+    ownsList(supabase, householdId, listId),
+    ownsItem(supabase, householdId, itemId),
+    supabase.from('list_items').select('*').eq('list_id', listId).eq('item_id', itemId).maybeSingle(),
+  ])
+  if (!listOk || !itemOk) return NO_ACCESS
 
-  // Check item isn't already on the list
-  const { data: existing } = await supabase
-    .from('list_items')
-    .select('id')
-    .eq('list_id', listId)
-    .eq('item_id', itemId)
-    .single()
-
-  if (existing) return { error: 'Vara er allereie på lista' }
+  // Already on the list: return the existing line instead of failing
+  if (existingRes.data) return { listItem: existingRes.data, existed: true }
 
   const { data, error } = await supabase
     .from('list_items')
     .insert({
+      ...(clientId && UUID_RE.test(clientId) ? { id: clientId } : {}),
       list_id: listId,
       item_id: itemId,
       quantity: quantity || '1',

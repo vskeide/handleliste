@@ -1,13 +1,38 @@
 import { redirect } from 'next/navigation'
 import Link from 'next/link'
 import { readSession } from '@/lib/session'
+import { createServiceRoleClient } from '@/lib/supabase/server'
 import { t } from '@/lib/i18n'
 import { Button } from '@/components/ui/button'
 import { ShoppingCart } from 'lucide-react'
 
-export default function WelcomePage() {
-  if (readSession()) {
-    redirect('/lister')
+export const dynamic = 'force-dynamic'
+
+/** The list the household used most recently: last added line, else newest list. */
+async function latestListId(householdId: string): Promise<string | null> {
+  const supabase = createServiceRoleClient()
+  const { data: lists } = await supabase
+    .from('shopping_lists')
+    .select('id, created_at')
+    .eq('household_id', householdId)
+    .order('created_at', { ascending: false })
+  if (!lists?.length) return null
+  const { data: line } = await supabase
+    .from('list_items')
+    .select('list_id')
+    .in('list_id', lists.map((l) => l.id))
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+  return line?.list_id ?? lists[0].id
+}
+
+export default async function WelcomePage() {
+  const householdId = readSession()
+  if (householdId) {
+    // Open straight on the list in use; the overview stays one tap away
+    const id = await latestListId(householdId)
+    redirect(id ? `/lister/${id}` : '/lister')
   }
 
   return (

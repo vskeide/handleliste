@@ -2,6 +2,7 @@
 
 import { createServiceRoleClient } from '@/lib/supabase/server'
 import { getSession } from './auth'
+import { ownsList } from '@/lib/ownership'
 
 export async function searchItems(query: string) {
   const householdId = await getSession()
@@ -40,6 +41,44 @@ export async function createItem(name: string, sectionId: string) {
     return { error: 'Kunne ikkje opprette vare' }
   }
   return { item: data }
+}
+
+/**
+ * Create a new household item and put it on a list in one call. The phone supplies both
+ * ids so it can show the line before the server answers.
+ */
+export async function createItemAndAddToList(
+  listId: string,
+  name: string,
+  sectionId: string,
+  itemId: string,
+  listItemId: string,
+) {
+  const householdId = await getSession()
+  if (!householdId) return { error: 'Ikkje innlogga' }
+  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+  if (!UUID_RE.test(itemId) || !UUID_RE.test(listItemId)) return { error: 'Ugyldig id' }
+
+  const supabase = createServiceRoleClient()
+  if (!(await ownsList(supabase, householdId, listId))) return { error: 'Ingen tilgang' }
+
+  const { data: item, error } = await supabase
+    .from('items')
+    .insert({ id: itemId, household_id: householdId, name: name.trim(), section_id: sectionId, is_confirmed: false })
+    .select('*, sections(name_nn, icon, color)')
+    .single()
+  if (error || !item) {
+    if (error?.code === '23505') return { error: 'Vara finst allereie' }
+    return { error: 'Kunne ikkje opprette vare' }
+  }
+
+  const { data: listItem, error: liErr } = await supabase
+    .from('list_items')
+    .insert({ id: listItemId, list_id: listId, item_id: item.id, quantity: '1' })
+    .select()
+    .single()
+  if (liErr) return { error: 'Kunne ikkje legge til vare', item }
+  return { item, listItem }
 }
 
 export async function updateItemSection(itemId: string, sectionId: string) {
