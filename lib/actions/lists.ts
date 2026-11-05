@@ -48,6 +48,9 @@ export async function deleteList(listId: string) {
   if (!householdId) return { error: 'Ikkje innlogga' }
 
   const supabase = createServiceRoleClient()
+  if (!(await ownsList(supabase, householdId, listId))) return NO_ACCESS
+  // Lines first, in case the foreign key doesn't cascade
+  await supabase.from('list_items').delete().eq('list_id', listId)
   const { error } = await supabase
     .from('shopping_lists')
     .delete()

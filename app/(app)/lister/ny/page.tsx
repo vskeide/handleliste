@@ -22,21 +22,7 @@ export default function NewListPage() {
 
   useEffect(() => {
     getHouseholdStores().then((data) => setStores(data))
-    getTemplates().then((data) => {
-      setTemplates(data)
-      // Auto-create from template if URL has ?template=id
-      const templateId = searchParams.get('template')
-      if (templateId) {
-        const tmpl = data.find((t: any) => t.id === templateId)
-        if (tmpl) {
-          setLoading(true)
-          createListFromTemplate(tmpl.id, tmpl.name).then((result) => {
-            if (result.list) router.push(`/lister/${result.list.id}`)
-            else setLoading(false)
-          })
-        }
-      }
-    })
+    getTemplates().then(setTemplates)
   }, [])
 
   async function handleSubmit(e: React.FormEvent) {
@@ -60,10 +46,11 @@ export default function NewListPage() {
     setLoading(false)
   }
 
-  async function handleDeleteTemplate(e: React.MouseEvent, templateId: string) {
-    e.stopPropagation()
-    await deleteTemplate(templateId)
-    setTemplates((prev) => prev.filter((t) => t.id !== templateId))
+  async function handleDeleteTemplate(template: any) {
+    if (!confirm(`Slette malen «${template.name}»? Dette kan ikkje angrast.`)) return
+    const result = await deleteTemplate(template.id)
+    if ('error' in result && result.error) { alert(result.error); return }
+    setTemplates((prev) => prev.filter((t) => t.id !== template.id))
   }
 
   return (
@@ -87,11 +74,11 @@ export default function NewListPage() {
               const itemCount = template.template_items?.[0]?.count || 0
               const chainColor = template.stores?.chain ? CHAIN_COLORS[template.stores.chain] : null
               return (
+                <div key={template.id} className="flex items-center gap-1 w-full rounded-lg border border-[#E2E8F0] hover:border-primary transition-colors">
                 <button
-                  key={template.id}
                   onClick={() => handleUseTemplate(template)}
                   disabled={loading}
-                  className="flex items-center gap-3 w-full rounded-lg border border-[#E2E8F0] p-3 text-left hover:border-primary hover:bg-primary/5 transition-colors"
+                  className="flex items-center gap-3 flex-1 min-w-0 p-3 text-left hover:bg-primary/5 rounded-lg"
                 >
                   <Bookmark className="h-4 w-4 text-primary flex-shrink-0" />
                   <div className="flex-1 min-w-0">
@@ -111,13 +98,18 @@ export default function NewListPage() {
                       <span className="text-xs text-[#94A3B8]">{itemCount} varer</span>
                     </div>
                   </div>
-                  <button
-                    onClick={(e) => handleDeleteTemplate(e, template.id)}
-                    className="text-[#94A3B8] hover:text-red-500 flex-shrink-0 p-1"
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </button>
                 </button>
+                <Link href={`/lister/mal/${template.id}`} className="text-xs text-primary px-2 py-3 flex-shrink-0">
+                  Endre
+                </Link>
+                <button
+                  onClick={() => handleDeleteTemplate(template)}
+                  className="text-[#94A3B8] hover:text-red-500 flex-shrink-0 p-3"
+                  aria-label={`Slett malen ${template.name}`}
+                >
+                  <Trash2 className="h-4 w-4" />
+                </button>
+                </div>
               )
             })}
           </div>
