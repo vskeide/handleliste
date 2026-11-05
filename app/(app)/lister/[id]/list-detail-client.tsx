@@ -14,7 +14,8 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { QuantityPickerSheet, formatQuantityDisplay } from '@/components/quantity-picker-sheet'
-import { ArrowLeft, Plus, Search, X, Check, Trash2, Map, Store, RotateCcw, Bookmark, MoreVertical, UtensilsCrossed, Shuffle, ArrowRightLeft } from 'lucide-react'
+import { NextItemMode, type NextItemEntry } from '@/components/next-item-mode'
+import { ArrowLeft, Plus, Search, X, Check, Trash2, Map, Store, RotateCcw, Bookmark, MoreVertical, UtensilsCrossed, Shuffle, ArrowRightLeft, Play } from 'lucide-react'
 import type { Section, WalkOrder } from '@/lib/types'
 
 interface Props {
@@ -42,6 +43,7 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores }:
   const [movingItemId, setMovingItemId] = useState<string | null>(null)
   const [frihandelMode, setFrihandelMode] = useState(false)
   const [editingQuantityId, setEditingQuantityId] = useState<string | null>(null)
+  const [showNextMode, setShowNextMode] = useState(false)
   const searchRef = useRef<HTMLInputElement>(null)
   const [itemsMap, setItemsMap] = useState<Record<string, any>>({})
 
@@ -82,6 +84,32 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores }:
 
   const sortedGroups = Object.entries(groupedItems)
     .sort(([a], [b]) => (walkOrderMap[a] ?? 999) - (walkOrderMap[b] ?? 999))
+
+  // Walking order for "next item" mode: same order the current view shows
+  const learnedPos = (li: { item_id: string }) => {
+    const it = itemsMap[li.item_id]
+    return it?.check_count > 0 ? it.check_order_sum / it.check_count : 999
+  }
+  const byLearned = (a: { item_id: string }, b: { item_id: string }) =>
+    learnedPos(a) - learnedPos(b) ||
+    (itemsMap[a.item_id]?.name || '').localeCompare(itemsMap[b.item_id]?.name || '', 'nn')
+  const routeItems = frihandelMode
+    ? [...uncheckedItems].sort(byLearned)
+    : sortedGroups.flatMap(([, group]) => [...group].sort(byLearned))
+  const nextModeEntries: NextItemEntry[] = routeItems
+    .filter((li) => itemsMap[li.item_id])
+    .map((li) => {
+      const item = itemsMap[li.item_id]
+      const section = sectionMap[item.section_id]
+      return {
+        listItemId: li.id,
+        name: item.name,
+        quantity: li.quantity,
+        sectionName: section?.name_nn,
+        sectionIcon: section?.icon,
+        sectionColor: section?.color,
+      }
+    })
 
   // Search handler
   const handleSearch = useCallback(async (query: string) => {
@@ -220,6 +248,15 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores }:
             >
               <Shuffle className="h-5 w-5" />
             </button>
+            {uncheckedItems.length > 0 && (
+              <button
+                onClick={() => setShowNextMode(true)}
+                className="p-1 rounded text-[#64748B]"
+                title="Neste vare (fullskjerm)"
+              >
+                <Play className="h-5 w-5" />
+              </button>
+            )}
             {list.stores && list.store_id && (
               <Link href={`/butikkar/${list.store_id}/kart`} className="text-[#64748B]">
                 <Map className="h-5 w-5" />
@@ -717,6 +754,16 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores }:
           </>
         )}
       </div>
+
+      {/* Fullscreen next-item mode */}
+      {showNextMode && (
+        <NextItemMode
+          items={nextModeEntries}
+          onPick={(id) => handleToggle(id, false)}
+          onUndo={(id) => handleToggle(id, true)}
+          onClose={() => setShowNextMode(false)}
+        />
+      )}
 
       {/* Quantity picker sheet */}
       {editingQuantityId && (() => {
