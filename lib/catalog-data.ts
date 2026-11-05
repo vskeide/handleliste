@@ -140,6 +140,8 @@ export const CATALOG: CatalogProduct[] = [
   { name: 'Brunost', section: 'Pålegg & frukost', aliases: ['geitost', 'ost'] },
   { name: 'Cornflakes', section: 'Pålegg & frukost' },
   { name: 'Fenalår', section: 'Pålegg & frukost' },
+  // Cured beef from Stranda; the household's own item is spelt "Mår"
+  { name: 'Strandamør', section: 'Pålegg & frukost', aliases: ['mør', 'mår', 'stranda mør'] },
   { name: 'Frukostblanding', section: 'Pålegg & frukost', aliases: ['frokostblanding', 'frokost'] },
   { name: 'Granola', section: 'Pålegg & frukost' },
   { name: 'Gulost', section: 'Pålegg & frukost', aliases: ['ost', 'hvitost'] },
