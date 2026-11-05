@@ -166,11 +166,11 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores, i
   }
 
   // ── Order in the shop ─────────────────────────────────────────────────────────
-  // Everything is a position 0..1 through the trip, best source first:
-  //   item route in this shop (learned from your ticks)
+  // Relative comparisons become stable display ranks, best source first:
+  //   item route in this shop (learned from observed pick order)
   //   → section route in this shop (learned, shared between households)
   //   → the shop's section layout (set by hand under Butikkar)
-  //   → your old global tick order
+  //   → alphabetical order for products without observations
   const maxWalk = Math.max(1, ...walkOrder.map((w) => w.walk_order))
   const sectionPos = (sectionId: string | null | undefined): number => {
     if (!sectionId) return 1
@@ -188,8 +188,7 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores, i
   const inSectionPos = (li: { item_id: string }): number => {
     const r = itemRoutes[li.item_id]
     if (r) return r.avg
-    const it = itemsMap[li.item_id]
-    return it?.check_count > 0 ? 2 + it.check_order_sum / it.check_count / 1000 : 3
+    return 3 // Unknown products keep name order; old absolute tick positions are no longer used.
   }
   const byName = (a: { item_id: string }, b: { item_id: string }) =>
     (itemsMap[a.item_id]?.name || '').localeCompare(itemsMap[b.item_id]?.name || '', 'nn')
@@ -468,7 +467,7 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores, i
 
   function handleToggle(listItemId: string, currentChecked: boolean) {
     // Don't let ticks made far from any shop (at home) teach the route
-    send({ kind: 'toggle', listItemId, checked: !currentChecked, record: geo.status !== 'away' })
+    send({ kind: 'toggle', listItemId, checked: !currentChecked, record: geo.status !== 'away', pickedAt: new Date().toISOString() })
   }
 
   function handleQuantityUpdate(listItemId: string, quantity: string) {
@@ -1100,7 +1099,7 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores, i
               const walkNum = walkOrderMap[sectionId]
               if (!section) return null
 
-              // Within a section: your route in this shop, then your old tick order
+              // Within a section: relative route in this shop, then name order
               const sortedItems = [...sectionItems].sort(byRouteInSection)
 
               return (

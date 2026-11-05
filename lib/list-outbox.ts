@@ -7,7 +7,7 @@ export interface BatchLine {
 export type OutboxOp =
   | { kind: 'add'; clientId: string; itemId: string; quantity?: string; name?: string; sectionId?: string | null }
   | { kind: 'create'; clientId: string; itemId: string; name: string; sectionId: string; quantity?: string; confirmed?: boolean }
-  | { kind: 'toggle'; listItemId: string; checked: boolean; record?: boolean }
+  | { kind: 'toggle'; listItemId: string; checked: boolean; record?: boolean; pickedAt?: string }
   | { kind: 'qty'; listItemId: string; quantity: string }
   | { kind: 'remove'; listItemId: string }
   | { kind: 'batch'; lines: BatchLine[] }
