@@ -4,6 +4,13 @@
 
 This checkpoint supersedes the original status below:
 
+- **Mobile UI update (2026-11-08), local:** top full-screen hamburger navigation,
+  typed-only list suggestions, household meals only in list search, isolated picker
+  scrolling, clearer collapsed dinner rows, and an explicit screen-awake switch.
+  The list's header +/map buttons and old bottom-navigation spacing are removed.
+  See `docs/MOBILE-UI-2026-11-08.md` for scope and the remaining Android Edge
+  keyboard/autofill verification. No push approval has been given for this update.
+
 - **Release approval (2026-11-05):** The user explicitly approved committing,
   pushing and deploying all changes, including the side chats. The release includes
   clear-list, the hidden dinner overview with source-aware ingredient removal,

@@ -26,8 +26,7 @@ import { searchAll, resolveName, guessSection, displayName, type KnownItem } fro
 import { parseEntry, splitEntries, isMultiEntry } from '@/lib/parse-list'
 import { scaleQty, addQty } from '@/lib/quantity'
 import type { CatalogProduct } from '@/lib/catalog-data'
-import { STARTER_MEALS, type StarterMeal } from '@/lib/starter-meals'
-import { ArrowLeft, Plus, Search, X, Check, Trash2, Map, Store, RotateCcw, Bookmark, MoreVertical, UtensilsCrossed, Shuffle, ArrowRightLeft, Play, Pencil, CloudOff, History, MapPin, Users } from 'lucide-react'
+import { ArrowLeft, Plus, Search, X, Check, Trash2, Store, RotateCcw, Bookmark, MoreVertical, UtensilsCrossed, ListChecks, Shuffle, ArrowRightLeft, Play, Pencil, CloudOff, History, MapPin, Users } from 'lucide-react'
 import type { Section, WalkOrder, ListItem, ListMeal, MealSource } from '@/lib/types'
 
 interface Props {
@@ -74,7 +73,6 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores, i
   const busyCopy = outbox.pending.some(w => w.op.kind === 'copy')
   const keyboardArea = useKeyboardViewport()
   const [portionPicker, setPortionPicker] = useState<{ mealId: string; name: string; icon: string; portions: number } | null>(null)
-  const [inputFocused, setInputFocused] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [searchResults, setSearchResults] = useState<any[]>([])
   const [highlightIndex, setHighlightIndex] = useState(0)
@@ -248,12 +246,7 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores, i
     ))
     const lq = term.toLowerCase()
     const own = meals.filter((m) => m.name.toLowerCase().includes(lq))
-    const ownNames = new Set(own.map((m) => m.name.toLowerCase()))
-    const starters = STARTER_MEALS
-      .filter((m) => m.name.toLowerCase().includes(lq) && !ownNames.has(m.name.toLowerCase()))
-      .slice(0, 4)
-      .map((m) => ({ id: `starter:${m.name}`, name: m.name, icon: m.icon, starter: m, meal_items: [{ count: m.ingredients.length }] }))
-    setMealResults([...own, ...starters])
+    setMealResults(own)
     setHighlightIndex(0)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [listItems, meals, itemsMap, sections])
@@ -314,30 +307,6 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores, i
     if (!lines.length) return
     setItemsMap((prev) => ({ ...prev, ...newItems }))
     queueBatch(lines)
-  }
-
-  /** A starter dinner: scale to the household and add, creating items as needed. */
-  async function handleAddStarter(meal: StarterMeal, people?: number) {
-    const target = people ?? householdSize
-    const factor = target && meal.servings ? target / meal.servings : 1
-    resetSearch()
-    const known = Object.values(itemsMap) as KnownItem[]
-    const lines: { itemId: string; quantity: string; create?: { name: string; sectionId: string } }[] = []
-    const newItems: Record<string, any> = {}
-    for (const ing of meal.ingredients) {
-      const quantity = scaleQty(ing.qty, factor)
-      const hit = resolveName(known, ing.name)
-      if (hit?.kind === 'item') { lines.push({ itemId: hit.item.id, quantity }); continue }
-      const product = hit?.kind === 'catalog' ? hit.product : null
-      const id = newId()
-      const name = product?.name ?? ing.name
-      const sectionId = (product && sectionIdByName[product.section]) || fallbackSectionId
-      lines.push({ itemId: id, quantity, create: { name, sectionId } })
-      newItems[id] = { id, name, section_id: sectionId, times_purchased: 0, is_confirmed: true }
-      known.push({ id, name, section_id: sectionId })
-    }
-    setItemsMap((prev) => ({ ...prev, ...newItems }))
-    queueBatch(lines, { id: newId(), name: meal.name, icon: meal.icon, servings: target ?? meal.servings })
   }
 
   function handleAddItem(itemId: string) {
@@ -421,11 +390,6 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores, i
 
   async function handleAddMeal(mealId: string, people?: number) {
     setPortionPicker(null)
-    if (mealId.startsWith('starter:')) {
-      const starter = mealResults.find((m: any) => m.id === mealId)?.starter as StarterMeal | undefined
-      if (starter) await handleAddStarter(starter, people)
-      return
-    }
     const meal = meals.find((m) => m.id === mealId)
     resetSearch()
     if (!meal?.ingredients) { setNotice('Opne lista på nett ein gong for å lagre middagen på telefonen'); return }
@@ -450,13 +414,6 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores, i
     setShowMenu(false)
     if (!busyCopy) send({ kind: 'copy' })
   }
-
-  // Most-bought items not already waiting on the list: one-tap chips
-  const activeItemIds = new Set(listItems.filter((li) => !li.is_checked).map((li) => li.item_id))
-  const frequentItems = Object.values(itemsMap)
-    .filter((it: any) => (it.times_purchased || 0) > 0 && !activeItemIds.has(it.id))
-    .sort((a: any, b: any) => (b.times_purchased || 0) - (a.times_purchased || 0))
-    .slice(0, 10)
 
   async function handleMoveItem(itemId: string, newSectionId: string) {
     await updateItemSection(itemId, newSectionId)
@@ -563,7 +520,7 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores, i
   return (
     <div className="mx-auto max-w-lg">
       {/* Header */}
-      <div className="sticky top-0 z-40 bg-white border-b px-4 py-3">
+      <div className="sticky top-12 z-40 bg-white border-b px-4 py-3">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3 min-w-0">
             <Link href="/lister" className="text-[#64748B] hover:text-[#0F172A] flex-shrink-0">
@@ -588,19 +545,6 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores, i
                 <Play className="h-5 w-5" />
               </button>
             )}
-            {list.stores && list.store_id && (
-              <Link href={`/butikkar/${list.store_id}/kart`} className="text-[#64748B]">
-                <Map className="h-5 w-5" />
-              </Link>
-            )}
-            <button onClick={() => searchRef.current?.focus()} className="text-[#64748B]" aria-label="Legg til vare">
-              <Plus className="h-5 w-5" />
-            </button>
-            <button type="button" onClick={() => setShowMeals(!showMeals)} aria-label={`Middagar på lista (${listMeals.length})`} aria-haspopup="dialog" aria-expanded={showMeals}
-              title="Middagar på lista" className="relative flex h-9 w-9 items-center justify-center rounded text-[#64748B]">
-              <UtensilsCrossed className="h-5 w-5" />
-              {listMeals.length > 0 && <span className="absolute -right-0.5 -top-0.5 rounded-full bg-primary px-1 text-[10px] leading-4 text-white">{listMeals.length}</span>}
-            </button>
             <div className="relative">
               <button onClick={() => setShowMenu(!showMenu)} className="text-[#64748B]" aria-label="Listeval" aria-expanded={showMenu}>
                 <MoreVertical className="h-5 w-5" />
@@ -682,7 +626,7 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores, i
         <div className="flex items-center gap-2 mt-2">
           <button
             onClick={() => setShowStoreSelector(!showStoreSelector)}
-            className="text-xs px-2 py-0.5 rounded-full font-medium"
+            className="min-w-0 truncate text-xs px-2 py-0.5 rounded-full font-medium"
             style={{
               backgroundColor: chainColor?.lightBg || '#F1F5F9',
               color: chainColor?.primary || '#64748B',
@@ -708,6 +652,10 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores, i
             <MapPin className={`h-3.5 w-3.5 ${geo.status === 'locating' ? 'animate-pulse' : ''}`} />
             {geo.status === 'away' && <span>heime?</span>}
           </button>
+          <button type="button" onClick={() => setShowMeals(!showMeals)} aria-haspopup="dialog" aria-expanded={showMeals}
+            className="flex min-h-8 shrink-0 items-center gap-1 rounded-lg border px-2 text-xs font-medium text-[#475569]">
+            <ListChecks className="h-4 w-4" />Middagar i lista ({listMeals.length})
+          </button>
           {outbox.waiting > 0 && (
             <span
               className="flex items-center gap-1 text-[11px] font-medium text-[#B45309] bg-[#FEF3C7] rounded-full px-2 py-0.5"
@@ -732,7 +680,7 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores, i
         )}
       </div>
 
-      {showMeals && <ListMealsSheet meals={listMeals} onClose={() => setShowMeals(false)} onRemove={handleRemoveMeal} />}
+      {showMeals && <ListMealsSheet meals={listMeals} listName={list.name} onClose={() => setShowMeals(false)} onRemove={handleRemoveMeal} />}
 
       {outbox.error && (
         <div role="alert" className="mx-4 my-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm">
@@ -767,36 +715,19 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores, i
         </>
       )}
 
-      {/* Add bar: always visible, fixed just above the bottom navigation, with
-          results opening upwards so the thumb never has to reach the top */}
+      {/* Add bar stays above the keyboard; suggestions require typed input. */}
       {/* With the keyboard up, pin the bar to the bottom of the visible area (just above
           the keyboard) and let the results use only the height that is actually visible */}
-      <div
-        className={`fixed left-0 right-0 z-40 pointer-events-none ${keyboardArea ? 'pb-1' : 'bottom-[65px]'}`}
+      {!showNextMode && <div
+        className={`fixed left-0 right-0 z-40 pointer-events-none ${keyboardArea ? 'pb-1' : 'bottom-0 pb-[max(0.5rem,env(safe-area-inset-bottom))]'}`}
         style={keyboardArea ? { top: keyboardArea.top + keyboardArea.height, transform: 'translateY(-100%)' } : undefined}
       >
         <div className="mx-auto max-w-lg px-3 pointer-events-auto">
-          {(searchQuery.length > 0 || showSectionPicker || (inputFocused && frequentItems.length > 0 && listItems.length > 0)) && (
+          {(searchQuery.trim().length > 0 || showSectionPicker) && (
           <div
             className="mb-1 max-h-[45vh] overflow-y-auto overscroll-contain rounded-xl border bg-white px-3 py-2 shadow-lg"
             style={keyboardArea ? { maxHeight: Math.max(120, keyboardArea.height - 72) } : undefined}
           >
-
-          {/* Empty field: most-bought items as one-tap chips (mouse-down keeps the keyboard up) */}
-          {!searchQuery && !showSectionPicker && (
-            <div className="flex flex-wrap gap-1.5 py-1">
-              {frequentItems.map((it: any) => (
-                <button
-                  key={it.id}
-                  onMouseDown={(e) => e.preventDefault()}
-                  onClick={() => handleAddItem(it.id)}
-                  className="rounded-full border px-2.5 py-1 text-sm text-[#0F172A] hover:border-primary"
-                >
-                  {sectionMap[it.section_id]?.icon} {it.name}
-                </button>
-              ))}
-            </div>
-          )}
 
           {/* Meal results */}
           {mealResults.length > 0 && (
@@ -812,7 +743,6 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores, i
                     >
                       <span className="text-sm">{meal.icon}</span>
                       <span className="text-sm font-medium truncate">{meal.name}</span>
-                      {meal.starter && <span className="text-[10px] text-[#C2410C]">forslag</span>}
                       <Badge className="text-[10px] bg-[#FED7AA] text-[#C2410C] border-0 ml-auto flex-shrink-0">
                         <UtensilsCrossed className="h-2.5 w-2.5 mr-0.5 inline" />
                         {count} varer
@@ -939,6 +869,8 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores, i
             <Search className="h-4 w-4 text-[#94A3B8] flex-shrink-0" />
             <Input
               ref={searchRef}
+              type="search"
+              name="shopping-item-search"
               value={searchQuery}
               onChange={(e) => handleSearch(e.target.value)}
               onKeyDown={(e) => {
@@ -962,11 +894,9 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores, i
                 }
               }}
               placeholder={t('list.search_placeholder')}
-              className="border-0 shadow-none focus-visible:ring-0 h-12 px-0 text-base"
+              className="border-0 shadow-none focus-visible:ring-0 h-12 px-0 text-base [&::-webkit-search-cancel-button]:appearance-none"
               enterKeyHint="done"
               autoComplete="off"
-              onFocus={() => setInputFocused(true)}
-              onBlur={() => setTimeout(() => setInputFocused(false), 150)}
               aria-label="Legg til vare"
             />
             {searchQuery && (
@@ -980,7 +910,7 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores, i
             )}
           </div>
         </div>
-      </div>
+      </div>}
 
       {/* Move item section picker overlay */}
       {movingItemId && (
@@ -1026,22 +956,7 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores, i
               <History className="h-4 w-4 mr-2" />
               {busyCopy ? 'Hentar…' : 'Same som sist'}
             </Button>
-            {frequentItems.length > 0 && (
-              <div>
-                <p className="text-xs text-[#94A3B8] mb-2">eller trykk på det de ofte kjøper</p>
-                <div className="flex flex-wrap justify-center gap-2">
-                  {frequentItems.map((it: any) => (
-                    <button
-                      key={it.id}
-                      onClick={() => handleAddItem(it.id)}
-                      className="rounded-full border bg-white px-3 py-1.5 text-sm text-[#0F172A] hover:border-primary"
-                    >
-                      {sectionMap[it.section_id]?.icon} {it.name}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
+
           </div>
         ) : frihandelMode ? (
           /* ── Frihandel mode: flat list sorted by smart order ── */
@@ -1146,7 +1061,7 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores, i
 
               return (
                 <div key={sectionId} className="mb-4">
-                  <div className="flex items-center gap-2 mb-2 sticky top-[105px] bg-[#FAFAFA] py-1 z-10">
+                  <div className="flex items-center gap-2 mb-2 sticky top-[153px] bg-[#FAFAFA] py-1 z-10">
                     <span
                       className="flex items-center justify-center h-5 w-5 rounded-full text-[10px] font-bold text-white"
                       style={{ backgroundColor: section.color }}
@@ -1295,7 +1210,7 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores, i
       )}
 
       {notice && (
-        <div className="fixed bottom-[136px] left-1/2 -translate-x-1/2 z-50 rounded-lg bg-[#0F172A] text-white text-sm px-4 py-2 shadow-lg">
+        <div className="fixed bottom-[80px] left-1/2 -translate-x-1/2 z-50 rounded-lg bg-[#0F172A] text-white text-sm px-4 py-2 shadow-lg">
           {notice}
         </div>
       )}

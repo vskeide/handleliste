@@ -293,7 +293,7 @@ export function GridMapClient({ storeId, storeName, sections, storeMap, walkOrde
     </div>}
     </div>
     <div className="mt-3 flex justify-between text-xs text-[#94A3B8]"><span>🚪 {t('map.entrance')} · 💳 {t('map.checkout')}</span><span>{blocks.length} seksjonar plasserte</span></div>
-    {dragging?.edge==='move' && <div ref={binRef} role="region" aria-label="Slepp feltet her for å slette" className={`fixed bottom-36 left-1/2 z-[90] flex min-h-16 w-60 -translate-x-1/2 items-center justify-center gap-2 rounded-xl border-2 border-dashed shadow-lg ${overBin?'border-red-700 bg-red-600 text-white':'border-red-400 bg-red-50 text-red-700'}`}><Trash2 className="h-6 w-6" />Slepp her for å slette</div>}
+    {dragging?.edge==='move' && <div ref={binRef} role="region" aria-label="Slepp feltet her for å slette" className={`fixed bottom-24 left-1/2 z-[90] flex min-h-16 w-60 -translate-x-1/2 items-center justify-center gap-2 rounded-xl border-2 border-dashed shadow-lg ${overBin?'border-red-700 bg-red-600 text-white':'border-red-400 bg-red-50 text-red-700'}`}><Trash2 className="h-6 w-6" />Slepp her for å slette</div>}
     {dragging?.edge==='move' && dragPoint && <div className="pointer-events-none fixed z-[95] rounded-lg bg-slate-800/80 px-3 py-2 text-xs text-white" style={{left:dragPoint.x+16,top:dragPoint.y-40}}>{sectionMap[dragging.block.section_id]?.name_nn}</div>}
     {menu && editing && <>
       <div className="fixed inset-0 z-[70]" onPointerDown={()=>setMenu(null)} />
@@ -304,7 +304,7 @@ export function GridMapClient({ storeId, storeName, sections, storeMap, walkOrde
       </div>
     </>}
     <dialog ref={paletteRef} aria-labelledby="map-section-title" onCancel={() => { setPaletteOpen(false); setCellSelection(null) }} onClose={() => { setPaletteOpen(false); setCellSelection(null) }}
-      className="fixed inset-x-3 bottom-24 top-auto m-auto max-h-[60dvh] w-[calc(100%-1.5rem)] max-w-lg overflow-y-auto rounded-xl border bg-white p-4 shadow-xl backdrop:bg-black/30">
+      className="fixed inset-x-3 bottom-[max(1rem,env(safe-area-inset-bottom))] top-auto m-auto max-h-[60dvh] w-[calc(100%-1.5rem)] max-w-lg overflow-y-auto rounded-xl border bg-white p-4 shadow-xl backdrop:bg-black/30">
       <div className="mb-3 flex items-center gap-2"><h2 id="map-section-title" className="flex-1 font-semibold">Vel varegruppe</h2><button autoFocus aria-label="Avbryt" onClick={() => { setPaletteOpen(false); setCellSelection(null) }} className="flex h-11 w-11 items-center justify-center rounded-lg border"><X className="h-5 w-5" /></button></div>
       <div className="grid grid-cols-2 gap-2">{sections.map(s => <button key={s.id} onClick={() => placeAtSelection(s.id)} className="min-h-11 rounded-lg px-3 py-2 text-left text-sm font-medium" style={{backgroundColor:s.color+'20'}}>{s.icon} {s.name_nn}</button>)}</div>
     </dialog>

@@ -1,10 +1,12 @@
 'use client'
 
+import { useState } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { ShoppingCart, Store, Settings, UtensilsCrossed } from 'lucide-react'
+import { Menu, X, ShoppingCart, Store, Settings, UtensilsCrossed, Sun } from 'lucide-react'
 import { t } from '@/lib/i18n'
-import { cn } from '@/lib/utils'
+import { FullScreenPanel } from '@/components/full-screen-panel'
+import { useScreenAwake } from '@/lib/hooks/use-screen-awake'
 
 const navItems = [
   { href: '/lister', label: () => t('nav.lists'), icon: ShoppingCart },
@@ -15,28 +17,46 @@ const navItems = [
 
 export function NavBar() {
   const pathname = usePathname()
+  const [openPath, setOpenPath] = useState<string | null>(null)
+  const open = openPath === pathname
+  const close = () => setOpenPath(null)
+  const screen = useScreenAwake()
 
-  return (
-    <nav className="fixed bottom-0 left-0 right-0 z-50 border-t bg-white safe-area-bottom">
-      <div className="mx-auto flex max-w-lg items-center justify-around">
-        {navItems.map((item) => {
-          const isActive = pathname.startsWith(item.href)
-          const Icon = item.icon
-          return (
-            <Link
-              key={item.href}
-              href={item.href}
-              className={cn(
-                'flex flex-1 flex-col items-center gap-1 py-3 text-xs transition-colors',
-                isActive ? 'text-primary font-medium' : 'text-[#94A3B8]'
-              )}
-            >
-              <Icon className="h-5 w-5" />
-              <span>{item.label()}</span>
-            </Link>
-          )
-        })}
+  return <>
+    <header className="sticky top-0 z-50 h-12 border-b bg-white">
+      <div className="mx-auto flex h-full max-w-lg items-center gap-2 px-3">
+        <button type="button" onClick={() => setOpenPath(pathname)} aria-label="Opne hovudmenyen" aria-haspopup="dialog" aria-expanded={open} className="flex h-11 w-11 items-center justify-center rounded-lg text-[#64748B]">
+          <Menu className="h-6 w-6" />
+        </button>
+        <span className="text-sm font-semibold">Handleliste</span>
       </div>
-    </nav>
-  )
+    </header>
+    {open && <FullScreenPanel label="Hovudmeny" onClose={close}>
+      <div className="mx-auto flex h-full max-w-lg flex-col px-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
+        <div className="flex min-h-16 items-center justify-between border-b">
+          <h2 className="text-xl font-bold">Handleliste</h2>
+          <button type="button" onClick={close} aria-label="Lukk hovudmenyen" className="flex h-11 w-11 items-center justify-center"><X className="h-6 w-6" /></button>
+        </div>
+        <nav aria-label="Hovudnavigasjon" className="space-y-2 overflow-y-auto py-6 overscroll-contain">
+          {navItems.map(item => {
+            const active = pathname.startsWith(item.href), Icon = item.icon
+            return <Link key={item.href} href={item.href} onClick={close} aria-current={active ? 'page' : undefined}
+              className={`flex min-h-16 items-center gap-4 rounded-xl px-4 text-lg ${active ? 'bg-primary/10 font-semibold text-primary' : 'text-[#64748B] hover:bg-slate-100'}`}>
+              <Icon className="h-6 w-6" />{item.label()}
+            </Link>
+          })}
+        </nav>
+        <div className="mt-auto border-t pt-4">
+          <button type="button" role="switch" aria-label="Hald skjermen på" aria-checked={screen.enabled} disabled={!screen.supported}
+            onClick={() => screen.setEnabled(!screen.enabled)} className="flex min-h-14 w-full items-center gap-3 rounded-xl border px-4 text-left disabled:opacity-50">
+            <Sun className="h-5 w-5" /><span className="flex-1 font-medium">Hald skjermen på</span>
+            <span className={`rounded-full px-3 py-1 text-sm ${screen.active ? 'bg-green-100 text-green-800' : 'bg-slate-100 text-slate-600'}`}>{screen.enabled ? screen.active ? 'På' : 'Ventar' : 'Av'}</span>
+          </button>
+          <p role={screen.error ? 'status' : undefined} className="mt-2 text-xs text-[#64748B]">
+            {screen.error ?? (!screen.supported ? 'Nettlesaren støttar ikkje denne funksjonen.' : screen.active ? 'Skjermen blir halden på medan appen er synleg.' : screen.enabled ? 'Vent på at nettlesaren held skjermen på.' : 'Slå på for å hindre at skjermen går i dvale medan appen er synleg.')}
+          </p>
+        </div>
+      </div>
+    </FullScreenPanel>}
+  </>
 }

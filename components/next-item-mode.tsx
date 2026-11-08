@@ -1,9 +1,11 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useRef, useState } from 'react'
 import { X, SkipForward, Undo2 } from 'lucide-react'
 import { formatQuantityDisplay } from '@/components/quantity-picker-sheet'
 import { ItemName, fitFontSize } from '@/components/item-name'
+import { FullScreenPanel } from '@/components/full-screen-panel'
+import { useScreenAwake } from '@/lib/hooks/use-screen-awake'
 
 export interface NextItemEntry {
   listItemId: string
@@ -29,6 +31,8 @@ interface Props {
 export function NextItemMode({ items, onPick, onUndo, onClose }: Props) {
   const [skipped, setSkipped] = useState<string[]>([])
   const [lastPicked, setLastPicked] = useState<NextItemEntry | null>(null)
+  const gesture = useRef<{x:number; y:number; moved:boolean} | null>(null)
+  useScreenAwake(true)
 
   // Skipped items go last, in the order they were skipped
   const queue = [
@@ -37,14 +41,6 @@ export function NextItemMode({ items, onPick, onUndo, onClose }: Props) {
   ]
   const current = queue[0]
   const next = queue[1]
-
-  // Keep the screen on while shopping, where the browser supports it
-  useEffect(() => {
-    let lock: any = null
-    const nav: any = navigator
-    nav.wakeLock?.request('screen').then((l: any) => { lock = l }).catch(() => {})
-    return () => { lock?.release?.().catch?.(() => {}) }
-  }, [])
 
   function pick() {
     if (!current) return
@@ -68,10 +64,15 @@ export function NextItemMode({ items, onPick, onUndo, onClose }: Props) {
   }
 
   return (
+    <FullScreenPanel label="Plukkemodus" onClose={onClose} className="touch-none select-none">
     <div
-      className="fixed inset-0 z-[60] flex flex-col bg-white select-none"
-      style={{ borderTop: `8px solid ${current?.sectionColor || '#10B981'}` }}
-      onClick={pick}
+      className="flex h-full min-h-0 flex-col overscroll-none"
+      style={{ borderTop: `8px solid ${current?.sectionColor || '#10B981'}`, WebkitTouchCallout:'none' }}
+      onContextMenu={e => e.preventDefault()}
+      onPointerDown={e => { gesture.current = {x:e.clientX,y:e.clientY,moved:false} }}
+      onPointerMove={e => { if (gesture.current && Math.hypot(e.clientX-gesture.current.x,e.clientY-gesture.current.y)>10) gesture.current.moved = true }}
+      onPointerCancel={() => { if (gesture.current) gesture.current.moved = true }}
+      onClick={e => { if (e.detail===0 || !gesture.current?.moved) pick() }}
     >
       <div className="flex items-center justify-between px-4 py-3" onClick={(e) => e.stopPropagation()}>
         <span className="text-sm text-[#64748B]">{queue.length} att</span>
@@ -107,7 +108,7 @@ export function NextItemMode({ items, onPick, onUndo, onClose }: Props) {
         </div>
       )}
 
-      <div className="flex items-center justify-between px-4 pb-8 pt-3" onClick={(e) => e.stopPropagation()}>
+      <div className="flex items-center justify-between px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-3" onClick={(e) => e.stopPropagation()}>
         <button
           onClick={undo}
           disabled={!lastPicked}
@@ -124,5 +125,6 @@ export function NextItemMode({ items, onPick, onUndo, onClose }: Props) {
         </button>
       </div>
     </div>
+    </FullScreenPanel>
   )
 }

@@ -379,7 +379,7 @@ export default function MealDetailPage() {
 
       {/* Opened from a shopping list ("Lag middag «…»"): finish by putting it on that list */}
       {toList ? (
-        <div className="fixed bottom-20 left-0 right-0 z-30">
+        <div className="fixed bottom-[max(1rem,env(safe-area-inset-bottom))] left-0 right-0 z-30">
           <div className="mx-auto max-w-lg px-4 flex gap-2">
             <Button
               onClick={handleAddToList}
@@ -394,7 +394,7 @@ export default function MealDetailPage() {
           </div>
         </div>
       ) : (
-        <div className="fixed bottom-20 right-4 z-30">
+        <div className="fixed bottom-[max(1rem,env(safe-area-inset-bottom))] right-4 z-30">
           <Button onClick={() => setShowSearch(true)} className="rounded-full h-14 w-14 shadow-lg" size="icon">
             <Plus className="h-6 w-6" />
           </Button>

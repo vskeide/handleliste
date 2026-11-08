@@ -5,9 +5,9 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   await requireSession()
 
   return (
-    <div className="min-h-screen bg-[#FAFAFA] pb-20">
-      {children}
+    <div className="min-h-dvh bg-[#FAFAFA]">
       <NavBar />
+      {children}
     </div>
   )
 }

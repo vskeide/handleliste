@@ -147,7 +147,7 @@ export function SectionSorterClient({ storeId, storeName, sections, initialWalkO
         </SortableContext>
       </DndContext>
 
-      <div className="fixed bottom-20 left-0 right-0 px-4">
+      <div className="fixed bottom-[max(1rem,env(safe-area-inset-bottom))] left-0 right-0 px-4">
         <div className="mx-auto max-w-lg">
           <Button onClick={handleSave} className="w-full h-12" disabled={saving}>
             {saving ? 'Lagrar...' : saved ? 'Lagra!' : t('mapping.save')}

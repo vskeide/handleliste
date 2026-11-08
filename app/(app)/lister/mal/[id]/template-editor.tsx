@@ -220,7 +220,7 @@ export function TemplateEditor({ template, initialLines, items, sections, stores
       </div>
 
       {/* Actions */}
-      <div className="fixed bottom-20 left-0 right-0 z-30">
+      <div className="fixed bottom-[max(1rem,env(safe-area-inset-bottom))] left-0 right-0 z-30">
         <div className="mx-auto max-w-lg px-4 flex gap-2">
           <Button onClick={useTemplate} disabled={busy || lines.length === 0} className="flex-1 h-12 shadow-lg">
             <Play className="h-4 w-4 mr-2" /> Lag handleliste frå malen
@@ -232,7 +232,7 @@ export function TemplateEditor({ template, initialLines, items, sections, stores
       </div>
 
       {notice && (
-        <div className="fixed bottom-36 left-1/2 -translate-x-1/2 z-50 rounded-lg bg-[#0F172A] text-white text-sm px-4 py-2 shadow-lg">
+        <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-50 rounded-lg bg-[#0F172A] text-white text-sm px-4 py-2 shadow-lg">
           {notice}
         </div>
       )}
