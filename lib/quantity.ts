@@ -66,6 +66,40 @@ export function subtractQty(a: string, b: string): string | null {
   return value <= 0 ? '0' : formatQty({ amount: value, unit: x.unit })
 }
 
+function measured(q: string): Qty | null {
+  const m=q.trim().replace(',','.').match(/^(\d+(?:\.\d+)?)(?: (stk|g|kg|ml|dl|L|pakke|porsjon))?$/)
+  if (!m || !Number.isFinite(Number(m[1]))) return null
+  return {amount:Number(m[1]),unit:(m[2] ?? 'stk') as Unit}
+}
+
+/** Exact proportional scaling from a saved basis, without shopping-rounding drift. */
+export function scaleMealQty(q: string, from: number, to: number): string | null {
+  const x=measured(q)
+  if (!x || x.amount<=0 || !Number.isFinite(from) || !Number.isFinite(to) || from<=0 || to<=0) return null
+  if (from===to) return q
+  const decimals=q.trim().replace(',','.').match(/^\d+\.(\d+)/)?.[1].length ?? 0
+  const precision=Math.min(6,Math.max(2,decimals+2)), factor=10**precision
+  const amount=Math.max(1/factor,Math.round((x.amount*to/from+Number.EPSILON)*factor)/factor)
+  return `${amount}${x.unit==='stk'?'':` ${x.unit}`}`
+}
+
+/** Replace one dinner's share while preserving every other contribution. */
+export function replaceMealQty(total: string, previous: string, next: string): string | null {
+  const n=measured(next)
+  if (!n || n.amount<=0) return null
+  if (total.trim()===previous.trim()) return next
+  const a=measured(total),b=measured(previous)
+  if (!a || !b) return null
+  const normalized=(x:Qty) => {const unit=BASE[x.unit];return {amount:x.amount*(unit?.factor ?? 1),unit:unit?.base ?? x.unit}}
+  const x=normalized(a),y=normalized(b),z=normalized(n)
+  if (x.unit!==y.unit || x.amount+1e-8<y.amount) return null
+  const rest=Math.max(0,x.amount-y.amount)
+  if (rest<1e-8) return next
+  if (x.unit!==z.unit) return null
+  const remainder=subtractQty(total,previous)
+  return remainder===null ? null : addQty(remainder,next)
+}
+
 /** Scale for a different number of people, rounded to amounts you can buy. */
 export function scaleQty(q: string, factor: number): string {
   if (!isFinite(factor) || factor <= 0 || Math.abs(factor - 1) < 1e-9) return q

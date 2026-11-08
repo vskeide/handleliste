@@ -12,6 +12,8 @@ export type OutboxOp =
   | { kind: 'remove'; listItemId: string }
   | { kind: 'batch'; lines: BatchLine[]; meal?: MealSource }
   | { kind: 'mealRemove'; mealId: string; itemId?: string }
+  | { kind: 'mealServings'; mealId: string; servings: number; fromServings?: number }
+  | { kind: 'mealQty'; mealId: string; itemId: string; quantity: string }
   | { kind: 'uncheck' }
   | { kind: 'copy' }
 export interface PendingWrite { id: string; op: OutboxOp }
@@ -27,6 +29,8 @@ function validOperation(op: unknown): op is OutboxOp {
   const value = op as Record<string, unknown>
   if (value.kind === 'uncheck' || value.kind === 'copy') return true
   if (value.kind === 'mealRemove') return typeof value.mealId === 'string' && (value.itemId === undefined || typeof value.itemId === 'string')
+  if (value.kind === 'mealServings') return typeof value.mealId === 'string' && typeof value.servings === 'number' && Number.isFinite(value.servings) && value.servings >= 0.5 && value.servings <= 100
+  if (value.kind === 'mealQty') return typeof value.mealId === 'string' && typeof value.itemId === 'string' && typeof value.quantity === 'string'
   if (value.kind === 'batch') return Array.isArray(value.lines) && value.lines.length <= 100 && value.lines.every(l => l && typeof l.itemId === 'string' && typeof l.clientId === 'string' && typeof l.quantity === 'string')
   if (value.kind === 'add' || value.kind === 'create') return typeof value.itemId === 'string' && typeof value.clientId === 'string'
   if (value.kind === 'remove') return typeof value.listItemId === 'string'
@@ -36,7 +40,7 @@ function validOperation(op: unknown): op is OutboxOp {
 }
 
 export function remapOperation(op: OutboxOp, aliases: Record<string, string>): OutboxOp {
-  if (op.kind === 'mealRemove' && op.itemId) return { ...op, itemId: aliases[op.itemId] ?? op.itemId }
+  if ((op.kind === 'mealRemove' || op.kind === 'mealQty') && op.itemId) return { ...op, itemId: aliases[op.itemId] ?? op.itemId }
   if ('listItemId' in op) return { ...op, listItemId: aliases[op.listItemId] ?? op.listItemId }
   if (op.kind === 'add') return { ...op, itemId: aliases[op.itemId] ?? op.itemId }
   if (op.kind === 'create') return { ...op, itemId: aliases[op.itemId] ?? op.itemId, clientId: aliases[op.clientId] ?? op.clientId }

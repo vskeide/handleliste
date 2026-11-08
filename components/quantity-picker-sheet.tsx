@@ -20,9 +20,11 @@ interface Props {
   currentQuantity: string
   onSave: (quantity: string) => void
   onClose: () => void
+  title?: string
+  error?: string | null
 }
 
-export function QuantityPickerSheet({ currentQuantity, onSave, onClose }: Props) {
+export function QuantityPickerSheet({ currentQuantity, onSave, onClose, title = 'Mengde', error }: Props) {
   const parsed = parseQuantity(currentQuantity)
   const [amount, setAmount] = useState(parsed.amount)
   const [unit, setUnit] = useState(parsed.unit)
@@ -55,7 +57,7 @@ export function QuantityPickerSheet({ currentQuantity, onSave, onClose }: Props)
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/40" onClick={onClose} />
       <div className="relative bg-white rounded-2xl px-6 pt-6 pb-6 w-full max-w-sm shadow-xl">
-        <h3 className="text-base font-semibold text-[#0F172A] mb-5 text-center">Mengde</h3>
+        <h3 className="text-base font-semibold text-[#0F172A] mb-5 text-center">{title}</h3>
 
         {/* Stepper */}
         <div className="flex items-center justify-center gap-5 mb-6">
@@ -67,6 +69,7 @@ export function QuantityPickerSheet({ currentQuantity, onSave, onClose }: Props)
           </button>
           <input
             type="number"
+            aria-label="Mengde"
             value={amount}
             onChange={(e) => handleAmountInput(e.target.value)}
             min={0.5}
@@ -97,6 +100,7 @@ export function QuantityPickerSheet({ currentQuantity, onSave, onClose }: Props)
           ))}
         </div>
 
+        {error && <p role="alert" className="mb-3 text-sm text-red-600">{error}</p>}
         <Button onClick={handleSave} className="w-full">
           Lagre
         </Button>

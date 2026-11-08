@@ -25,7 +25,7 @@ import { overlayListContents } from '@/lib/list-meals'
 import { applyListWrite } from '@/lib/actions/list-writes'
 import { searchAll, resolveName, guessSection, displayName, type KnownItem } from '@/lib/match'
 import { parseEntry, splitEntries, isMultiEntry } from '@/lib/parse-list'
-import { scaleQty, addQty } from '@/lib/quantity'
+import { scaleQty, addQty, replaceMealQty, scaleMealQty } from '@/lib/quantity'
 import type { CatalogProduct } from '@/lib/catalog-data'
 import { ArrowLeft, Plus, Search, X, Check, Trash2, Store, RotateCcw, Bookmark, MoreVertical, UtensilsCrossed, Shuffle, ArrowRightLeft, Play, Pencil, CloudOff, History, MapPin, Users } from 'lucide-react'
 import type { Section, WalkOrder, ListItem, ListMeal, MealSource } from '@/lib/types'
@@ -496,6 +496,30 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores, i
     send({kind:'mealRemove',mealId,...(itemId ? {itemId} : {})})
   }
 
+  function handleMealServings(mealId:string,servings:number,fromServings?:number): string | null {
+    const meal=listMeals.find(m=>m.id===mealId),from=meal?.servings ?? fromServings
+    if(!meal)return 'Retten er fjerna frå lista.'
+    if(!Number.isFinite(servings)||servings<0.5||servings>100)return 'Vel mellom 0,5 og 100 porsjonar.'
+    if(!from||!Number.isFinite(from)||from<0.5||from>100)return 'Oppgi kor mange porsjonar mengdene er til no.'
+    for(const ingredient of meal.ingredients) {
+      const line=listItems.find(l=>l.id===ingredient.list_item_id)
+      if(!line||!ingredient.quantity)continue
+      const wanted=scaleMealQty(ingredient.base_quantity ?? ingredient.quantity,ingredient.base_servings ?? from,servings)
+      if(wanted && replaceMealQty(line.quantity,ingredient.quantity,wanted)===null)return 'Mengdene kan ikkje kombinerast. Kontroller einingane i handlelista.'
+    }
+    send({kind:'mealServings',mealId,servings,...(meal.servings===null ? {fromServings:from} : {})})
+    return null
+  }
+
+  function handleMealQuantity(mealId:string,itemId:string,quantity:string): string | null {
+    const ingredient=listMeals.find(m=>m.id===mealId)?.ingredients.find(i=>i.item_id===itemId)
+    const line=listItems.find(l=>l.id===ingredient?.list_item_id)
+    if(!ingredient?.quantity||!line)return 'Endre denne vara i sjølve handlelista.'
+    if(replaceMealQty(line.quantity,ingredient.quantity,quantity)===null)return 'Mengda kan ikkje kombinerast med resten av vara. Bruk same type eining.'
+    send({kind:'mealQty',mealId,itemId,quantity})
+    return null
+  }
+
   async function handleSaveTemplate() {
     if (!templateName.trim()) return
     if (outbox.waiting) { setNotice('Vent til endringane er lagra før du lagrar malen'); return }
@@ -681,7 +705,8 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores, i
         )}
       </div>
 
-      {showMeals && <ListMealsPanel meals={listMeals} listName={list.name} onClose={() => setShowMeals(false)} onRemove={handleRemoveMeal} />}
+      {showMeals && <ListMealsPanel meals={listMeals} listName={list.name} onClose={() => setShowMeals(false)} onRemove={handleRemoveMeal}
+        onServingsChange={handleMealServings} onQuantityChange={handleMealQuantity} />}
 
       {outbox.error && (
         <div role="alert" className="mx-4 my-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm">

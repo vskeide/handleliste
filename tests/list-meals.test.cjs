@@ -10,7 +10,7 @@ function load(file) {
   return mod.exports
 }
 const { overlayListContents }=load('lib/list-meals.ts')
-const { subtractQty }=load('lib/quantity.ts')
+const { subtractQty,scaleMealQty,replaceMealQty }=load('lib/quantity.ts')
 const line=(id,quantity,checked=false)=>({id,item_id:id,list_id:'list',quantity,is_checked:checked,checked_at:null,sort_override:null,created_at:''})
 const meal=(id,quantity,item='meat')=>({id,name:id,icon:'🍽️',servings:4,ingredients:[{item_id:item,list_item_id:item,name:item,quantity}]})
 const remove=(id,itemId)=>({id:'op-'+id,op:{kind:'mealRemove',mealId:id,...(itemId?{itemId}:{})}})
@@ -66,4 +66,46 @@ test('polling a committed dinner cannot duplicate its source before acknowledgem
   const r=overlayListContents([line('meat','900 g')],[meal('taco','400 g'),meal('lasagne','500 g')],[
     {id:'lost-response',op:{kind:'batch',meal:{id:'taco',name:'Taco',icon:'🌮',servings:4},lines:[{itemId:'meat',clientId:'temp',quantity:'400 g',optimisticQuantity:'400 g'}]}},remove('taco')],'list')
   assert.equal(r.lines[0].quantity,'500 g');assert.deepEqual(r.meals.map(m=>m.id),['lasagne'])
+})
+
+const portions=(id,servings,fromServings)=>({id:'portion-op',op:{kind:'mealServings',mealId:id,servings,...(fromServings?{fromServings}:{})}})
+const quantity=(id,itemId,q)=>({id:'quantity-op',op:{kind:'mealQty',mealId:id,itemId,quantity:q}})
+test('portion changes preserve other dinners and manual purchases while leaving input snapshots untouched',()=>{
+  const meals=[meal('taco','400 g'),meal('lasagne','500 g')],base=[line('meat','1 kg')]
+  const r=overlayListContents(base,meals,[portions('taco',6)],'list')
+  assert.equal(r.lines[0].quantity,'1200 g');assert.equal(r.meals[0].servings,6);assert.equal(r.meals[0].ingredients[0].quantity,'600 g')
+  assert.equal(r.meals[1].ingredients[0].quantity,'500 g');assert.equal(base[0].quantity,'1 kg');assert.equal(meals[0].servings,4)
+})
+test('repeated portion changes and a refreshed committed result do not drift or apply twice',()=>{
+  const r=overlayListContents([line('meat','1 kg')],[meal('taco','1 kg')],[portions('taco',3),portions('taco',4)],'list')
+  assert.equal(r.lines[0].quantity,'1 kg');assert.equal(r.meals[0].ingredients[0].base_quantity,'1 kg')
+  const applied=overlayListContents(r.lines,r.meals,[portions('taco',3)],'list')
+  const replay=overlayListContents(applied.lines,applied.meals,[portions('taco',3)],'list')
+  assert.equal(replay.lines[0].quantity,applied.lines[0].quantity)
+})
+test('a dinner ingredient quantity edit creates a new portion basis and later deletion preserves the rest',()=>{
+  const r=overlayListContents([line('meat','1 kg')],[meal('taco','400 g'),meal('lasagne','500 g')],[quantity('taco','meat','700 g'),portions('taco',2)],'list')
+  assert.equal(r.lines[0].quantity,'950 g');assert.equal(r.meals[0].ingredients[0].quantity,'350 g')
+  const removed=overlayListContents(r.lines,r.meals,[remove('taco')],'list')
+  assert.equal(removed.lines[0].quantity,'600 g')
+})
+test('scaling does not restore removed ingredients or change globally overridden quantities',()=>{
+  const m=meal('taco','400 g');m.ingredients.push({item_id:'salt',list_item_id:null,name:'Salt',quantity:'1'})
+  const r=overlayListContents([line('meat','400 g')],[m],[{id:'override',op:{kind:'qty',listItemId:'meat',quantity:'2 kg'}},portions('taco',2)],'list')
+  assert.equal(r.lines[0].quantity,'2 kg');assert.equal(r.lines.length,1);assert.equal(r.meals[0].servings,2)
+})
+test('unknown portions require an explicit starting count before changing the list',()=>{
+  const m={...meal('taco','400 g'),servings:null}
+  assert.equal(overlayListContents([line('meat','400 g')],[m],[portions('taco',2)],'list').lines[0].quantity,'400 g')
+  assert.equal(overlayListContents([line('meat','400 g')],[m],[portions('taco',2,4)],'list').lines[0].quantity,'200 g')
+})
+test('a unit conflict rejects the entire projected portion change',()=>{
+  const m=meal('taco','400 g');m.ingredients.push({item_id:'onion',list_item_id:'onion',name:'Onion',quantity:'500 g'})
+  const r=overlayListContents([line('meat','400 g'),line('onion','2')],[m],[portions('taco',2)],'list')
+  assert.equal(r.lines[0].quantity,'400 g');assert.equal(r.meals[0].servings,4)
+  assert.equal(replaceMealQty('900 g','400 g','2'),null)
+  assert.equal(replaceMealQty('400 g','400 g','2'),'2')
+  assert.equal(replaceMealQty('300 g','400 g','500 g'),null)
+  assert.equal(scaleMealQty('1,5 L',4,2),'0.75 L')
+  assert.equal(scaleMealQty('0.001 kg',4,2),'0.0005 kg')
 })

@@ -1,5 +1,5 @@
 import { overlayWrites, type PendingWrite } from './list-outbox'
-import { addQty, subtractQty } from './quantity'
+import { addQty, subtractQty, replaceMealQty, scaleMealQty } from './quantity'
 import type { ListItem, ListMeal, ListMealIngredient } from './types'
 
 /** Project pending meal changes with the same source rules as the transactional RPC. */
@@ -11,7 +11,31 @@ export function overlayListContents(base: ListItem[], savedMeals: ListMeal[], wr
     // A refresh may see a committed write whose response was lost. Its source ID
     // proves this addition is already included in the atomic server snapshot.
     if (op.kind === 'batch' && op.meal && meals.some(m => m.id === op.meal!.id)) continue
-    if (op.kind === 'mealRemove') {
+    if (op.kind === 'mealServings' || op.kind === 'mealQty') {
+      const meal=meals.find(m=>m.id===op.mealId)
+      if (!meal) continue
+      const from=meal.servings ?? (op.kind==='mealServings' ? op.fromServings : null)
+      const changes: {line:ListItem; ingredient:ListMealIngredient; quantity:string; total:string}[]=[]
+      let conflict=false
+      for (const ingredient of meal.ingredients) {
+        if (op.kind==='mealQty' && ingredient.item_id!==op.itemId) continue
+        const line=lines.find(l=>l.id===ingredient.list_item_id)
+        if (!line || !ingredient.quantity) continue
+        const quantity=op.kind==='mealQty' ? op.quantity : scaleMealQty(ingredient.base_quantity ?? ingredient.quantity,ingredient.base_servings ?? from ?? 0,op.servings)
+        if (!quantity) continue
+        const total=replaceMealQty(line.quantity,ingredient.quantity,quantity)
+        if (total===null) { conflict=true; break }
+        changes.push({line,ingredient,quantity,total})
+      }
+      if (conflict || (op.kind==='mealServings' && !from)) continue
+      for (const change of changes) {
+        const {ingredient,line,quantity,total}=change
+        if (op.kind==='mealQty') {ingredient.base_quantity=quantity;ingredient.base_servings=from}
+        else {ingredient.base_quantity ??= ingredient.quantity;ingredient.base_servings ??= from}
+        ingredient.quantity=quantity;line.quantity=total
+      }
+      if (op.kind==='mealServings') meal.servings=op.servings
+    } else if (op.kind === 'mealRemove') {
       const meal = meals.find(m => m.id === op.mealId)
       for (const ingredient of meal?.ingredients ?? []) {
         if (op.itemId && ingredient.item_id !== op.itemId) continue

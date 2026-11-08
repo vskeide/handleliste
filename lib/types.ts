@@ -124,6 +124,8 @@ export interface ListMealIngredient {
   list_item_id: string | null
   name: string
   quantity: string | null
+  base_quantity?: string | null
+  base_servings?: number | null
 }
 export interface ListMeal {
   id: string
