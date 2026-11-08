@@ -7,8 +7,8 @@ This checkpoint supersedes the original status below:
 - **Compact-header follow-up (2026-11-08), local:** one page title row with shared
   hamburger on the right, inline "Middagar" panel under the list header, neutral GPS
   icon without "heime?", circular store-add button, and search-input/keyboard styling
-  fixes. See the follow-up section of `docs/MOBILE-UI-2026-11-08.md`. These refinements
-  have not yet been approved for a production push. The domain strip reported on
+  fixes. See the follow-up section of `docs/MOBILE-UI-2026-11-08.md`. The user approved
+  pushing/publishing these refinements as version 0.2.1. The domain strip reported on
   Edge Android remains a physical-phone verification limitation.
 
 - **Mobile UI update (2026-11-08), local:** top full-screen hamburger navigation,

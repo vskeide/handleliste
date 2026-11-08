@@ -3,7 +3,7 @@
 // - Pages: network first, falling back to the last copy seen, so the list still opens
 //   with no signal in the shop.
 // - Everything else (server actions are POST, API calls) goes straight to the network.
-const VERSION = 'v0.2.0'
+const VERSION = 'v0.2.1'
 const STATIC = `static-${VERSION}`
 const PAGES = `pages-${VERSION}`
 
