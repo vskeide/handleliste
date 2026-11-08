@@ -7,6 +7,7 @@ import { Menu, X, ShoppingCart, Store, Settings, UtensilsCrossed, Sun } from 'lu
 import { t } from '@/lib/i18n'
 import { FullScreenPanel } from '@/components/full-screen-panel'
 import { useScreenAwake } from '@/lib/hooks/use-screen-awake'
+import packageInfo from '@/package.json'
 
 const navItems = [
   { href: '/lister', label: () => t('nav.lists'), icon: ShoppingCart },
@@ -55,6 +56,7 @@ export function NavBar() {
           <p role={screen.error ? 'status' : undefined} className="mt-2 text-xs text-[#64748B]">
             {screen.error ?? (!screen.supported ? 'Nettlesaren støttar ikkje denne funksjonen.' : screen.active ? 'Skjermen blir halden på medan appen er synleg.' : screen.enabled ? 'Vent på at nettlesaren held skjermen på.' : 'Slå på for å hindre at skjermen går i dvale medan appen er synleg.')}
           </p>
+          <p className="mt-3 text-xs text-[#94A3B8]">Versjon {packageInfo.version}</p>
         </div>
       </div>
     </FullScreenPanel>}

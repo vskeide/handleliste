@@ -9,7 +9,9 @@ This checkpoint supersedes the original status below:
   scrolling, clearer collapsed dinner rows, and an explicit screen-awake switch.
   The list's header +/map buttons and old bottom-navigation spacing are removed.
   See `docs/MOBILE-UI-2026-11-08.md` for scope and the remaining Android Edge
-  keyboard/autofill verification. No push approval has been given for this update.
+  keyboard/autofill verification. The user approved this push on 2026-11-08 and
+  requested a webpage version update: 0.2.0, including the service-worker cache
+  generation. Verify the final deployment SHA before treating it as live.
 
 - **Release approval (2026-11-05):** The user explicitly approved committing,
   pushing and deploying all changes, including the side chats. The release includes
