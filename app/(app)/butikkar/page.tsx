@@ -1,9 +1,11 @@
+import { MenuButton } from '@/components/nav-bar'
 import { requireSession } from '@/lib/session'
 import Link from 'next/link'
 import { createServiceRoleClient } from '@/lib/supabase/server'
 import { CHAIN_COLORS } from '@/lib/constants'
 import { t } from '@/lib/i18n'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 import { MapPin, ChevronRight, Plus } from 'lucide-react'
 
 export default async function StoresPage() {
@@ -27,8 +29,11 @@ export default async function StoresPage() {
   return (
     <div className="mx-auto max-w-lg px-4 pt-6">
       <div className="mb-6 flex items-center justify-between gap-3">
-        <h1 className="text-2xl font-bold text-[#0F172A]">{t('stores.title')}</h1>
-        <Link href="/butikkar/ny" className="flex min-h-11 items-center gap-1 rounded-lg border bg-white px-3 text-sm"><Plus className="h-4 w-4" />Legg til butikk</Link>
+        <h1 className="min-w-0 flex-1 text-2xl font-bold text-[#0F172A]">{t('stores.title')}</h1>
+        <Button asChild size="icon" className="rounded-full h-10 w-10">
+          <Link href="/butikkar/ny" aria-label="Legg til butikk" title="Legg til butikk"><Plus className="h-5 w-5" /></Link>
+        </Button>
+        <MenuButton />
       </div>
 
       <div className="space-y-3">

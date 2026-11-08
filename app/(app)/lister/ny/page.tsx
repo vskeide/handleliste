@@ -1,5 +1,7 @@
 'use client'
 
+import { MenuButton } from '@/components/nav-bar'
+
 import { useState, useEffect } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { createList, getTemplates, createListFromTemplate, deleteTemplate } from '@/lib/actions/lists'
@@ -59,7 +61,8 @@ export default function NewListPage() {
         <Link href="/lister" className="text-[#64748B] hover:text-[#0F172A]">
           <ArrowLeft className="h-5 w-5" />
         </Link>
-        <h1 className="text-2xl font-bold text-[#0F172A]">{t('lists.new')}</h1>
+        <h1 className="min-w-0 flex-1 truncate text-2xl font-bold text-[#0F172A]">{t('lists.new')}</h1>
+        <MenuButton />
       </div>
 
       {/* Templates section */}

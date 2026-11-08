@@ -95,3 +95,19 @@ test('a refused wake lock switches off with a useful error',async()=>{
     await settle();assert.ok(changes.some(([slot,value])=>slot===0&&value===false));assert.ok(changes.some(([slot,value])=>slot===3&&typeof value==='string'))
   })
 })
+
+test('keyboard positioning uses the visible bottom without transforms and handles resized Android viewports',()=>{
+  const previous=global.window,values=[],events={};let cleanup
+  const viewport={height:450,offsetTop:20,addEventListener:(name,fn)=>{events[name]=fn},removeEventListener:name=>{delete events[name]}}
+  global.window={innerHeight:800,visualViewport:viewport}
+  try {
+    const {useKeyboardViewport}=load('lib/hooks/use-keyboard-viewport.ts',{react:{useState:()=>[null,value=>values.push(value)],useEffect:effect=>{cleanup=effect()}}})
+    useKeyboardViewport()
+    assert.deepEqual(values.at(-1),{top:20,height:450,bottom:330})
+    viewport.offsetTop=40;events.scroll();assert.equal(values.at(-1).bottom,310)
+    // Edge/Chrome may resize the layout itself: normal bottom:0 already follows the keyboard.
+    global.window.innerHeight=450;viewport.offsetTop=0;events.resize();assert.equal(values.at(-1),null)
+    global.window.innerHeight=800;viewport.height=800;events.resize();assert.equal(values.at(-1),null)
+    cleanup();assert.deepEqual(events,{})
+  } finally {global.window=previous}
+})

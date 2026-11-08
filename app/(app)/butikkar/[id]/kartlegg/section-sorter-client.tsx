@@ -1,5 +1,7 @@
 'use client'
 
+import { MenuButton } from '@/components/nav-bar'
+
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
@@ -121,10 +123,11 @@ export function SectionSorterClient({ storeId, storeName, sections, initialWalkO
         <Link href={`/butikkar/${storeId}`} className="text-[#64748B] hover:text-[#0F172A]">
           <ArrowLeft className="h-5 w-5" />
         </Link>
-        <div className="min-w-0">
+        <div className="min-w-0 flex-1">
           <h1 className="text-lg font-bold text-[#0F172A]">{t('mapping.title')}</h1>
           <p className="text-xs text-[#64748B]">{storeName}</p>
         </div>
+        <MenuButton />
       </div>
 
       <p className="text-sm text-[#64748B] mb-4">{t('mapping.instruction')}</p>

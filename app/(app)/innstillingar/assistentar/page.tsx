@@ -1,3 +1,4 @@
+import { MenuButton } from '@/components/nav-bar'
 import Link from 'next/link'
 import { requireSession } from '@/lib/session'
 import { createServiceRoleClient } from '@/lib/supabase/server'
@@ -10,7 +11,7 @@ export default async function AssistantConnections() {
     .eq('household_id', household).is('revoked_at', null).gt('refresh_expires_at', new Date().toISOString()).order('created_at', { ascending: false })
   return <main className="mx-auto max-w-lg space-y-5 px-4 py-6">
     <Link href="/innstillingar" className="text-blue-700 underline">Tilbake til innstillingar</Link>
-    <h1 className="text-2xl font-bold">ChatGPT og Claude</h1>
+    <div className="flex items-center justify-between gap-3"><h1 className="text-2xl font-bold">ChatGPT og Claude</h1><MenuButton /></div>
     <p>Legg til ein eigen MCP-tenar i assistenten din, og bruk denne adressa:</p>
     <code className="block break-all rounded border bg-white p-3">{resource()}</code>
     <Link href="/connect" className="inline-block text-blue-700 underline">Slik koplar du til</Link>

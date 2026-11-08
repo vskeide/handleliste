@@ -1,5 +1,7 @@
 'use client'
 
+import { MenuButton } from '@/components/nav-bar'
+
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
@@ -51,11 +53,12 @@ export default function MealsPage() {
 
   return (
     <div className="mx-auto max-w-lg px-4 pt-6 pb-24">
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold text-[#0F172A]">Middagar</h1>
+      <div className="flex items-center justify-between gap-3 mb-6">
+        <h1 className="min-w-0 flex-1 text-2xl font-bold text-[#0F172A]">Middagar</h1>
         <Button onClick={() => setShowCreate(true)} size="icon" className="rounded-full h-10 w-10">
           <Plus className="h-5 w-5" />
         </Button>
+        <MenuButton />
       </div>
 
       {/* Create new meal */}

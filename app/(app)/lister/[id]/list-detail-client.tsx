@@ -17,7 +17,8 @@ import { Badge } from '@/components/ui/badge'
 import { QuantityPickerSheet, formatQuantityDisplay, parseQuantity } from '@/components/quantity-picker-sheet'
 import { NextItemMode, type NextItemEntry } from '@/components/next-item-mode'
 import { ItemName } from '@/components/item-name'
-import { ListMealsSheet } from '@/components/list-meals-sheet'
+import { ListMealsPanel } from '@/components/list-meals-sheet'
+import { MenuButton } from '@/components/nav-bar'
 import { useOutbox, type OutboxOp } from '@/lib/hooks/use-outbox'
 import { type BatchLine } from '@/lib/list-outbox'
 import { overlayListContents } from '@/lib/list-meals'
@@ -26,7 +27,7 @@ import { searchAll, resolveName, guessSection, displayName, type KnownItem } fro
 import { parseEntry, splitEntries, isMultiEntry } from '@/lib/parse-list'
 import { scaleQty, addQty } from '@/lib/quantity'
 import type { CatalogProduct } from '@/lib/catalog-data'
-import { ArrowLeft, Plus, Search, X, Check, Trash2, Store, RotateCcw, Bookmark, MoreVertical, UtensilsCrossed, ListChecks, Shuffle, ArrowRightLeft, Play, Pencil, CloudOff, History, MapPin, Users } from 'lucide-react'
+import { ArrowLeft, Plus, Search, X, Check, Trash2, Store, RotateCcw, Bookmark, MoreVertical, UtensilsCrossed, Shuffle, ArrowRightLeft, Play, Pencil, CloudOff, History, MapPin, Users } from 'lucide-react'
 import type { Section, WalkOrder, ListItem, ListMeal, MealSource } from '@/lib/types'
 
 interface Props {
@@ -520,7 +521,7 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores, i
   return (
     <div className="mx-auto max-w-lg">
       {/* Header */}
-      <div className="sticky top-12 z-40 bg-white border-b px-4 py-3">
+      <div className="sticky top-0 z-40 bg-white border-b px-4 py-2">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3 min-w-0">
             <Link href="/lister" className="text-[#64748B] hover:text-[#0F172A] flex-shrink-0">
@@ -528,10 +529,10 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores, i
             </Link>
             <h1 className="text-lg font-bold text-[#0F172A] truncate">{list.name}</h1>
           </div>
-          <div className="flex items-center gap-2 flex-shrink-0">
+          <div className="flex items-center gap-1 flex-shrink-0">
             <button
               onClick={() => setFrihandelMode(!frihandelMode)}
-              className={`p-1 rounded ${frihandelMode ? 'text-primary bg-primary/10' : 'text-[#64748B]'}`}
+              className={`flex h-11 w-8 items-center justify-center rounded ${frihandelMode ? 'text-primary bg-primary/10' : 'text-[#64748B]'}`}
               title={frihandelMode ? 'Kategori-modus' : 'Frihandel-modus'}
             >
               <Shuffle className="h-5 w-5" />
@@ -539,20 +540,20 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores, i
             {uncheckedItems.length > 0 && (
               <button
                 onClick={() => setShowNextMode(true)}
-                className="p-1 rounded text-[#64748B]"
+                className="flex h-11 w-8 items-center justify-center rounded text-[#64748B]"
                 title="Neste vare (fullskjerm)"
               >
                 <Play className="h-5 w-5" />
               </button>
             )}
             <div className="relative">
-              <button onClick={() => setShowMenu(!showMenu)} className="text-[#64748B]" aria-label="Listeval" aria-expanded={showMenu}>
+              <button onClick={() => setShowMenu(!showMenu)} className="flex h-11 w-8 items-center justify-center text-[#64748B]" aria-label="Listeval" aria-expanded={showMenu}>
                 <MoreVertical className="h-5 w-5" />
               </button>
               {showMenu && (
                 <>
                 <div className="fixed inset-0 z-40" onClick={() => setShowMenu(false)} />
-                <div className="absolute right-0 top-8 bg-white rounded-lg shadow-lg border py-1 w-56 z-50">
+                <div className="absolute right-0 top-full bg-white rounded-lg shadow-lg border py-1 w-56 z-50">
                   <button
                     onClick={handleCopyPrevious}
                     className="flex items-center gap-2 w-full px-3 py-2 text-sm text-left hover:bg-[#F1F5F9]"
@@ -599,6 +600,7 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores, i
                 </>
               )}
             </div>
+            <MenuButton />
           </div>
         </div>
 
@@ -650,11 +652,10 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores, i
             aria-label="Finn butikken eg er i"
           >
             <MapPin className={`h-3.5 w-3.5 ${geo.status === 'locating' ? 'animate-pulse' : ''}`} />
-            {geo.status === 'away' && <span>heime?</span>}
           </button>
-          <button type="button" onClick={() => setShowMeals(!showMeals)} aria-haspopup="dialog" aria-expanded={showMeals}
+          <button type="button" onClick={() => { setShowMeals(!showMeals); if (!showMeals) window.scrollTo({top:0}) }} aria-controls="list-meals" aria-expanded={showMeals}
             className="flex min-h-8 shrink-0 items-center gap-1 rounded-lg border px-2 text-xs font-medium text-[#475569]">
-            <ListChecks className="h-4 w-4" />Middagar i lista ({listMeals.length})
+            <UtensilsCrossed className="h-4 w-4" />Middagar
           </button>
           {outbox.waiting > 0 && (
             <span
@@ -680,7 +681,7 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores, i
         )}
       </div>
 
-      {showMeals && <ListMealsSheet meals={listMeals} listName={list.name} onClose={() => setShowMeals(false)} onRemove={handleRemoveMeal} />}
+      {showMeals && <ListMealsPanel meals={listMeals} listName={list.name} onClose={() => setShowMeals(false)} onRemove={handleRemoveMeal} />}
 
       {outbox.error && (
         <div role="alert" className="mx-4 my-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm">
@@ -720,7 +721,7 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores, i
           the keyboard) and let the results use only the height that is actually visible */}
       {!showNextMode && <div
         className={`fixed left-0 right-0 z-40 pointer-events-none ${keyboardArea ? 'pb-1' : 'bottom-0 pb-[max(0.5rem,env(safe-area-inset-bottom))]'}`}
-        style={keyboardArea ? { top: keyboardArea.top + keyboardArea.height, transform: 'translateY(-100%)' } : undefined}
+        style={keyboardArea ? { bottom: keyboardArea.bottom } : undefined}
       >
         <div className="mx-auto max-w-lg px-3 pointer-events-auto">
           {(searchQuery.trim().length > 0 || showSectionPicker) && (
@@ -865,7 +866,7 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores, i
           </div>
           )}
 
-          <div className="flex items-center gap-2 rounded-xl border bg-white px-3 shadow-lg">
+          <div className="flex items-center gap-2 overflow-hidden rounded-xl border bg-white px-3 shadow-lg">
             <Search className="h-4 w-4 text-[#94A3B8] flex-shrink-0" />
             <Input
               ref={searchRef}
@@ -894,7 +895,7 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores, i
                 }
               }}
               placeholder={t('list.search_placeholder')}
-              className="border-0 shadow-none focus-visible:ring-0 h-12 px-0 text-base [&::-webkit-search-cancel-button]:appearance-none"
+              className="min-w-0 flex-1 appearance-none rounded-none border-0 bg-transparent p-0 shadow-none outline-none focus-visible:ring-0 focus-visible:ring-offset-0 h-12 text-base [&::-webkit-search-cancel-button]:appearance-none"
               enterKeyHint="done"
               autoComplete="off"
               aria-label="Legg til vare"
@@ -1061,7 +1062,7 @@ export function ListDetailClient({ list, sections, walkOrder, householdStores, i
 
               return (
                 <div key={sectionId} className="mb-4">
-                  <div className="flex items-center gap-2 mb-2 sticky top-[153px] bg-[#FAFAFA] py-1 z-10">
+                  <div className="flex items-center gap-2 mb-2 sticky top-[105px] bg-[#FAFAFA] py-1 z-10">
                     <span
                       className="flex items-center justify-center h-5 w-5 rounded-full text-[10px] font-bold text-white"
                       style={{ backgroundColor: section.color }}

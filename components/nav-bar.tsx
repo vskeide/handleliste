@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { Menu, X, ShoppingCart, Store, Settings, UtensilsCrossed, Sun } from 'lucide-react'
@@ -16,22 +16,28 @@ const navItems = [
   { href: '/innstillingar', label: () => t('nav.settings'), icon: Settings },
 ]
 
-export function NavBar() {
+const MenuContext = createContext<{ open: boolean; show: () => void } | null>(null)
+
+/** Place the shared menu in each page's existing title row. */
+export function MenuButton() {
+  const menu = useContext(MenuContext)
+  if (!menu) return null
+  return <button type="button" onClick={menu.show} aria-label="Opne hovudmenyen" aria-haspopup="dialog" aria-expanded={menu.open}
+    className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-[#64748B]">
+    <Menu className="h-6 w-6" />
+  </button>
+}
+
+export function NavBar({ children }: { children: ReactNode }) {
   const pathname = usePathname()
   const [openPath, setOpenPath] = useState<string | null>(null)
   const open = openPath === pathname
   const close = () => setOpenPath(null)
   const screen = useScreenAwake()
+  useEffect(() => { setOpenPath(null) }, [pathname])
 
-  return <>
-    <header className="sticky top-0 z-50 h-12 border-b bg-white">
-      <div className="mx-auto flex h-full max-w-lg items-center gap-2 px-3">
-        <button type="button" onClick={() => setOpenPath(pathname)} aria-label="Opne hovudmenyen" aria-haspopup="dialog" aria-expanded={open} className="flex h-11 w-11 items-center justify-center rounded-lg text-[#64748B]">
-          <Menu className="h-6 w-6" />
-        </button>
-        <span className="text-sm font-semibold">Handleliste</span>
-      </div>
-    </header>
+  return <MenuContext.Provider value={{open,show:() => setOpenPath(pathname)}}>
+    {children}
     {open && <FullScreenPanel label="Hovudmeny" onClose={close}>
       <div className="mx-auto flex h-full max-w-lg flex-col px-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
         <div className="flex min-h-16 items-center justify-between border-b">
@@ -60,5 +66,5 @@ export function NavBar() {
         </div>
       </div>
     </FullScreenPanel>}
-  </>
+  </MenuContext.Provider>
 }

@@ -1,3 +1,4 @@
+import { MenuButton } from '@/components/nav-bar'
 import { requireSession } from '@/lib/session'
 import { notFound } from 'next/navigation'
 import Link from 'next/link'
@@ -42,6 +43,7 @@ export default async function StoreDetailPage({ params: pendingParams }: { param
           <h1 className="text-xl font-bold text-[#0F172A] truncate">{store.name}</h1>
           <p className="text-xs text-[#64748B]">{store.address}</p>
         </div>
+        <MenuButton />
       </div>
 
       <div

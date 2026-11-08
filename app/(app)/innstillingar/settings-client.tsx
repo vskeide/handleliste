@@ -1,5 +1,7 @@
 'use client'
 
+import { MenuButton } from '@/components/nav-bar'
+
 import { useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
@@ -80,7 +82,7 @@ export function SettingsClient({ household }: Props) {
 
   return (
     <div className="mx-auto max-w-lg px-4 pt-6">
-      <h1 className="text-2xl font-bold text-[#0F172A] mb-6">{t('settings.title')}</h1>
+      <div className="mb-6 flex items-center justify-between gap-3"><h1 className="text-2xl font-bold text-[#0F172A]">{t('settings.title')}</h1><MenuButton /></div>
 
       <div className="space-y-4">
         {/* Household info */}

@@ -1,5 +1,7 @@
 'use client'
 
+import { MenuButton } from '@/components/nav-bar'
+
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useParams, useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
@@ -193,9 +195,9 @@ export default function MealDetailPage() {
             <span className="text-xl">{meal.icon}</span>
             <h1 className="text-lg font-bold text-[#0F172A] truncate">{meal.name}</h1>
           </div>
-          <button onClick={() => setShowSearch(true)} className="text-[#64748B]">
+          <div className="flex shrink-0 items-center gap-2"><button onClick={() => setShowSearch(true)} className="text-[#64748B]">
             <Plus className="h-5 w-5" />
-          </button>
+          </button><MenuButton /></div>
         </div>
         <div className="flex items-center gap-2 mt-1 ml-8 text-xs text-[#94A3B8]">
           <span>{meal.meal_items?.length || 0} ingrediensar ·</span>

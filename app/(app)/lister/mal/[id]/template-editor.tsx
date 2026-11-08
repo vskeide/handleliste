@@ -1,5 +1,7 @@
 'use client'
 
+import { MenuButton } from '@/components/nav-bar'
+
 import { useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
@@ -145,6 +147,7 @@ export function TemplateEditor({ template, initialLines, items, sections, stores
             className="h-9 text-lg font-bold border-0 shadow-none px-1 focus-visible:ring-1"
             aria-label="Namn på malen"
           />
+          <MenuButton />
         </div>
         <div className="flex items-center gap-2 text-xs text-[#64748B]">
           <span>Mal · {lines.length} varer ·</span>

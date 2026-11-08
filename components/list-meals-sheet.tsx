@@ -1,22 +1,14 @@
 'use client'
 
-import { useEffect, useRef } from 'react'
 import { X, Trash2, ChevronDown } from 'lucide-react'
 import type { ListMeal } from '@/lib/types'
 import { formatQuantityDisplay } from '@/components/quantity-picker-sheet'
-import { useBodyScrollLock } from '@/lib/hooks/use-body-scroll-lock'
 
-export function ListMealsSheet({ meals, listName, onClose, onRemove }: {
+export function ListMealsPanel({ meals, listName, onClose, onRemove }: {
   meals: ListMeal[]; listName: string; onClose: () => void; onRemove: (mealId: string, itemId?: string) => void
 }) {
-  const dialog = useRef<HTMLDialogElement>(null)
-  useBodyScrollLock()
-  useEffect(() => { if (dialog.current && !dialog.current.open) dialog.current.showModal() }, [])
-  return <dialog ref={dialog} aria-labelledby="list-meals-title" onClose={onClose}
-    onClick={e => { if (e.target === e.currentTarget) onClose() }}
-    className="fixed inset-0 m-0 mt-auto max-h-[80dvh] w-full max-w-none rounded-t-2xl bg-white p-0 text-[#0F172A] backdrop:bg-black/30">
-    <div className="mx-auto max-w-lg px-4 pb-8">
-      <div className="sticky top-0 flex items-center justify-between border-b bg-white py-2">
+  return <section id="list-meals" aria-labelledby="list-meals-title" className="border-b bg-white px-4 pb-4">
+      <div className="flex items-center justify-between border-b py-2">
         <h2 id="list-meals-title" className="min-w-0 font-bold">Middagar i «{listName}»</h2>
         <button type="button" onClick={onClose} aria-label="Lukk middagsoversikta" className="flex h-11 w-11 items-center justify-center"><X className="h-5 w-5" /></button>
       </div>
@@ -46,6 +38,5 @@ export function ListMealsSheet({ meals, listName, onClose, onRemove }: {
           </div>
         </details>)}
       </div>
-    </div>
-  </dialog>
+  </section>
 }

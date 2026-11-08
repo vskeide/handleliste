@@ -1,5 +1,7 @@
 'use client'
 
+import { MenuButton } from '@/components/nav-bar'
+
 import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { t } from '@/lib/i18n'
@@ -232,6 +234,7 @@ export function GridMapClient({ storeId, storeName, sections, storeMap, walkOrde
         {mode==='view' && <button onClick={() => { cancelGesture(); setMode('edit'); setPanning(false) }} className="min-h-11 px-3 text-xs bg-white"><Pencil className="h-4 w-4 inline mr-1" />{t('map.edit')}</button>}
       </div>}
       {mode==='edit' && <Button onClick={handleSave} className="min-h-11 px-3" disabled={saving}>{saving?'Lagrar…':'Lagre kart'}</Button>}
+      <MenuButton />
     </div>
     {mode==='edit' && <div className="mb-3 space-y-2">
       <div className="flex gap-2">

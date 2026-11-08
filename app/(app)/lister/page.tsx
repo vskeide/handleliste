@@ -1,3 +1,4 @@
+import { MenuButton } from '@/components/nav-bar'
 import { requireSession } from '@/lib/session'
 import Link from 'next/link'
 import { createServiceRoleClient } from '@/lib/supabase/server'
@@ -43,13 +44,14 @@ export default async function ListsPage() {
 
   return (
     <div className="mx-auto max-w-lg px-4 pt-6">
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold text-[#0F172A]">{t('lists.title')}</h1>
+      <div className="flex items-center justify-between gap-3 mb-6">
+        <h1 className="min-w-0 flex-1 text-2xl font-bold text-[#0F172A]">{t('lists.title')}</h1>
         <Button asChild size="icon" className="rounded-full h-10 w-10">
           <Link href="/lister/ny">
             <Plus className="h-5 w-5" />
           </Link>
         </Button>
+        <MenuButton />
       </div>
 
       {(!lists || lists.length === 0) ? (

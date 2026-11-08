@@ -7,7 +7,7 @@ import { useEffect, useState } from 'react'
 // the top. This reports the visible area while the keyboard is up, so the add bar can
 // sit right above the keyboard and its results fit in what is left.
 
-export interface VisibleArea { top: number; height: number }
+export interface VisibleArea { top: number; height: number; bottom: number }
 
 export function useKeyboardViewport(): VisibleArea | null {
   const [area, setArea] = useState<VisibleArea | null>(null)
@@ -17,7 +17,8 @@ export function useKeyboardViewport(): VisibleArea | null {
     if (!vv) return
     const update = () => {
       const keyboardUp = window.innerHeight - vv.height > 120
-      setArea(keyboardUp ? { top: vv.offsetTop, height: vv.height } : null)
+      setArea(keyboardUp ? { top: vv.offsetTop, height: vv.height,
+        bottom: Math.max(0, window.innerHeight - vv.offsetTop - vv.height) } : null)
     }
     vv.addEventListener('resize', update)
     vv.addEventListener('scroll', update)
