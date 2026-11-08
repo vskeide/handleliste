@@ -21,8 +21,7 @@ export function ListMealsPanel({ meals, listName, onClose, onRemove, onServingsC
         <h2 id="list-meals-title" className="min-w-0 font-bold">Middagar i «{listName}»</h2>
         <button type="button" onClick={onClose} aria-label="Lukk middagsoversikta" className="flex h-11 w-11 items-center justify-center"><X className="h-5 w-5" /></button>
       </div>
-      <p className="py-3 text-xs text-[#64748B]">Endringane gjeld berre denne handlelista. Andre rettar og den lagra oppskrifta blir ikkje endra. Mengder du har overstyrt i hovudlista, blir ikkje skalerte automatisk.</p>
-      {!meals.length && <p className="py-4 text-sm text-[#64748B]">Ingen middagar er lagde til enno. Oversikta gjeld rettar du legg til frå no av.</p>}
+      {!meals.length && <p className="py-4 text-sm text-[#64748B]">Ingen middagar lagt til enno</p>}
       <div className="space-y-3">
         {meals.map(meal => <details key={meal.id} className="group rounded-xl border">
           <summary className="flex min-h-14 cursor-pointer list-none items-center gap-2 p-3 [&::-webkit-details-marker]:hidden">
@@ -50,7 +49,6 @@ export function ListMealsPanel({ meals, listName, onClose, onRemove, onServingsC
             <label className="block text-xs">Nytt tal porsjonar
               <input type="number" min="0.5" max="100" step="0.5" required value={portionEdit.value} onChange={e=>setPortionEdit({...portionEdit,value:e.target.value})} className="mt-1 h-11 w-full rounded border bg-white px-2 text-base" />
             </label>
-            <p className="text-xs text-[#64748B]">Mengdene til denne retten blir skalerte på lista.</p>
             {editError && <p role="alert" className="text-sm text-red-600">{editError}</p>}
             <div className="flex gap-2"><button type="submit" className="min-h-11 rounded-lg bg-primary px-3 text-sm text-white">Lagre porsjonar</button>
               <button type="button" onClick={()=>{setPortionEdit(null);setEditError(null)}} className="min-h-11 px-3 text-sm">Avbryt</button></div>
