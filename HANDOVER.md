@@ -7,8 +7,8 @@ This checkpoint supersedes the original status below:
 - **Listed-dinner editing (2026-11-08), local:** portion changes and per-ingredient
   quantities now edit only the selected dinner's contribution to the shopping list.
   Shared/manual amounts and saved recipes are preserved. Migration
-  `20261108214408_edit_list_meal_quantities.sql` is applied; UI deployment has not
-  been approved yet. See `docs/LIST-MEAL-EDITING-2026-11-08.md` for behaviour,
+  `20261108214408_edit_list_meal_quantities.sql` is applied; the user approved UI
+  deployment as version 0.2.2. See `docs/LIST-MEAL-EDITING-2026-11-08.md` for behaviour,
   manual-override handling and verification boundaries.
 
 - **Compact-header follow-up (2026-11-08), local:** one page title row with shared

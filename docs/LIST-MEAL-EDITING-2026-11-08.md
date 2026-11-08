@@ -1,6 +1,8 @@
 # Portions and ingredient quantities on a shopping list
 
-Implemented locally; UI deployment awaits production-push approval.
+Implemented in `79a205c`; the user approved pushing/deploying on 2026-11-08.
+Release 0.2.2 updates both the visible version and service-worker cache generation.
+Verify the final release SHA is READY in Vercel before treating it as live.
 
 Under Middagar, expand a listed dinner and use its portion button. Saving rescales
 only that dinner's linked ingredients. Ingredient amounts use the same quantity/unit
